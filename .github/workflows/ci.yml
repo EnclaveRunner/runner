@@ -1,0 +1,137 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+env:
+  GO_VERSION: "1.25"
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.5.0
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Build
+        run: go build -v ./...
+
+  mod-tidy:
+    name: Go Mod Tidy Check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Run go mod tidy
+        run: |
+          go mod tidy --diff
+
+  # This job will only succeed if all other jobs succeed
+  all-checks:
+    name: All Checks Passed
+    runs-on: ubuntu-latest
+    needs: [lint, build, mod-tidy]
+    permissions:
+      contents: none
+    if: always()
+
+    steps:
+      - name: Check all jobs
+        run: |
+          if [[ "${{ needs.lint.result }}" != "success" ]]; then
+            echo "❌ Linting failed"
+            exit 1
+          fi
+          if [[ "${{ needs.build.result }}" != "success" ]]; then
+            echo "❌ Build failed"
+            exit 1
+          fi
+          if [[ "${{ needs.mod-tidy.result }}" != "success" ]]; then
+            echo "❌ Go Mod Tidy Check failed"
+            exit 1
+          fi
+          echo "✅ All checks passed!"
+
+      - name: Comment on PR failure
+        if: failure() && github.event_name == 'pull_request'
+        env:
+          COMMENT_BODY: |
+            ## ❌ **CI Checks Failed**
+
+            The following checks failed:
+            ${{ needs.lint.result != 'success' && '- Linting (For linting issues: Run `make lint` locally)' || '' }}
+            ${{ needs.build.result != 'success' && '- Build (For build issues: Run `go build ./...` locally)' || '' }}
+            ${{ needs.mod-tidy.result != 'success' && '- Mod tidy (Run `go mod tidy` locally)' || ''}}
+
+            _Please fix the issues before merging this PR._
+
+            ---
+
+            > **Details:**
+            > - **Commit:** [`${{ github.sha }}`](https://github.com/${{ github.repository }}/commit/${{ github.sha }})
+            > - **Branch:** `${{ github.head_ref || github.ref_name }}`
+            > - **Triggered by:** @${{ github.actor }}
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          GITHUB_TOKEN: ${{ secrets.BOT_PAT }}
+          header: CI-MONITOR
+          message: ${{ env.COMMENT_BODY }}
+
+      - name: Comment on PR success
+        if: success() && github.event_name == 'pull_request'
+        env:
+          COMMENT_BODY: |
+            ## ✅ **All CI Checks Passed**
+
+            All checks have passed successfully. Thank you for contributing to the project ✌🏼!
+
+            ---
+
+            > **Details:**
+            > - **Commit:** (https://github.com/${{ github.repository }}/commit/${{ github.sha }})
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          GITHUB_TOKEN: ${{ secrets.BOT_PAT }}
+          header: CI-MONITOR
+          message: ${{ env.COMMENT_BODY }}
