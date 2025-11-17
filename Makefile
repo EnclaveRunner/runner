@@ -1,4 +1,4 @@
-.PHONY: test clean verify fmt lint build oapi
+.PHONY: test clean verify fmt lint build proto help
 
 # Default target
 all: test
@@ -23,12 +23,11 @@ lint:
 clean:
 	go clean -testcache
 
-# Generate OpenAPI server code from spec
-oapi:
-	go generate tools.go
-
 build:
 	go build
+
+proto:
+	protoc --go_out=. --go-grpc_out=. registry.proto
 
 # Simulate CI tests
 verify:
@@ -54,3 +53,4 @@ help:
 	@echo "  oapi          - Create gin server and client from OpenAPI spec"
 	@echo "  verify        - Simulate CI Checks before opening a PR"
 	@echo "  help          - Show this help"
+	@echo "  proto         - Generate Go code from protobuf definitions"
