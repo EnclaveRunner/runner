@@ -1,20 +1,15 @@
 package queue
 
 import (
-	"github.com/ThreeDotsLabs/watermill/message"
+	"context"
+
+	"github.com/hibiken/asynq"
 	"github.com/rs/zerolog/log"
 )
 
-func process(messages <-chan *message.Message, id int) {
-	log.Info().Msg("Started processing messages")
-	for msg := range messages {
-		// Process the message
-		log.Info().
-			Str("payload", string(msg.Payload)).
-			Int("pid", id).
-			Msg("Received message")
+func processJob(ctx context.Context, t *asynq.Task) error {
+	msg := string(t.Payload())
+	log.Info().Str("payload", msg).Msg("Processing message")
 
-		// Acknowledge the message
-		msg.Ack()
-	}
+	return nil
 }
