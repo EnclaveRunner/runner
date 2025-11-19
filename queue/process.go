@@ -58,8 +58,10 @@ func (processor *NormalTaskProcessor) ProcessTask(
 		}
 	}
 
-	if payload.Artifact.GetVersionHash() == "" && payload.Artifact.GetTag() == "" {
-		taskLogger.Error().Msg("Invalid task payload: missing identifier (versionHash or tag)")
+	if payload.Artifact.GetVersionHash() == "" &&
+		payload.Artifact.GetTag() == "" {
+		taskLogger.Error().
+			Msg("Invalid task payload: missing identifier (versionHash or tag)")
 
 		return &InvalidPayloadError{
 			Msg:   "Invalid task payload: missing identifier (versionHash or tag)",
@@ -72,7 +74,10 @@ func (processor *NormalTaskProcessor) ProcessTask(
 
 	taskLogger.Debug().Msg("Fetching artifact")
 
-	wasm, err := processor.pullArtifact(ctx, taskLogger, payload.Artifact)
+	wasm, err := processor.pullArtifact(ctx, &taskLogger, payload.Artifact)
+	if err != nil {
+		return err
+	}
 
 	manifest := extism.Manifest{
 		Wasm: []extism.Wasm{
@@ -81,17 +86,24 @@ func (processor *NormalTaskProcessor) ProcessTask(
 	}
 
 	config := extism.PluginConfig{}
-	plugin, err := extism.NewPlugin(ctx, manifest, config, []extism.HostFunction{})
+	plugin, err := extism.NewPlugin(
+		ctx,
+		manifest,
+		config,
+		[]extism.HostFunction{},
+	)
 	if err != nil {
 		taskLogger.Error().Err(err).Msg("Failed to create Extism plugin")
 
-		return err
+		return &WasmExecutionError{
+			Msg:   "Failed to create Extism plugin",
+			Inner: err,
+		}
 	}
 
 	taskLogger.Info().Msg("Successfully created Extism plugin")
 
 	exit, out, err := plugin.Call("main", []byte("Hello World!"))
-
 	if err != nil {
 		taskLogger.Error().Err(err).Msg("Failed to call plugin 'main' function")
 
@@ -101,10 +113,14 @@ func (processor *NormalTaskProcessor) ProcessTask(
 		}
 	}
 
-	taskLogger.Debug().Str("output", string(out)).Msg("Plugin 'main' function output")
+	taskLogger.Debug().
+		Str("output", string(out)).
+		Msg("Plugin 'main' function output")
 
 	if exit != 0 {
-		taskLogger.Error().Uint32("exit_code", exit).Msg("Plugin 'main' function exited with non-zero code")
+		taskLogger.Error().
+			Uint32("exit_code", exit).
+			Msg("Plugin 'main' function exited with non-zero code")
 
 		return &WasmExecutionError{
 			Msg:   fmt.Sprintf("Plugin 'main' function exited with code %d", exit),
@@ -115,7 +131,11 @@ func (processor *NormalTaskProcessor) ProcessTask(
 	return nil
 }
 
-func (processor *NormalTaskProcessor) pullArtifact(ctx context.Context, taskLogger zerolog.Logger, artifact *pb.ArtifactIdentifier) (extism.Wasm, error) {
+func (processor *NormalTaskProcessor) pullArtifact(
+	ctx context.Context,
+	taskLogger *zerolog.Logger,
+	artifact *pb.ArtifactIdentifier,
+) (extism.Wasm, error) {
 	taskLogger.Debug().Msg("Fetching artifact")
 	stream, err := processor.registryClient.PullArtifact(ctx, artifact)
 	if err != nil {
@@ -148,7 +168,9 @@ func (processor *NormalTaskProcessor) pullArtifact(ctx context.Context, taskLogg
 
 	wasmData := buffer.Bytes()
 
-	taskLogger.Info().Int("size", len(wasmData)).Msg("Successfully pulled artifact")
+	taskLogger.Info().
+		Int("size", len(wasmData)).
+		Msg("Successfully pulled artifact")
 
 	return extism.WasmData{
 		Data: wasmData,
@@ -167,5 +189,11 @@ func formatArtifactIdentifier(artifact *pb.ArtifactIdentifier) string {
 		identifier = "unknown"
 	}
 
-	return fmt.Sprintf("%s/%s/%s:%s", artifact.Fqn.Source, artifact.Fqn.Author, artifact.Fqn.Name, identifier)
+	return fmt.Sprintf(
+		"%s/%s/%s:%s",
+		artifact.Fqn.Source,
+		artifact.Fqn.Author,
+		artifact.Fqn.Name,
+		identifier,
+	)
 }
