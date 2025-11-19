@@ -8,4 +8,6 @@ package task;
 
 message Task {
     registry.ArtifactIdentifier artifact = 1;
+    string function = 2;
+    bytes input = 3;
 }

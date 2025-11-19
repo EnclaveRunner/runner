@@ -85,7 +85,9 @@ func (processor *NormalTaskProcessor) ProcessTask(
 		},
 	}
 
-	config := extism.PluginConfig{}
+	config := extism.PluginConfig{
+		EnableWasi: true,
+	}
 	plugin, err := extism.NewPlugin(
 		ctx,
 		manifest,
@@ -103,12 +105,12 @@ func (processor *NormalTaskProcessor) ProcessTask(
 
 	taskLogger.Info().Msg("Successfully created Extism plugin")
 
-	exit, out, err := plugin.Call("main", []byte("Hello World!"))
+	exit, out, err := plugin.Call(payload.Function, payload.Input)
 	if err != nil {
-		taskLogger.Error().Err(err).Msg("Failed to call plugin 'main' function")
+		taskLogger.Error().Err(err).Str("function", payload.Function).Msg("Failed to call function")
 
 		return &WasmExecutionError{
-			Msg:   "Failed to call plugin 'main' function",
+			Msg:   fmt.Sprintf("Failed to call plugin %q function", payload.Function),
 			Inner: err,
 		}
 	}
