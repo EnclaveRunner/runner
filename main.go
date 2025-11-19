@@ -25,6 +25,9 @@ func initialize(ctx context.Context, topic string) {
 		{Key: "redis.host", Value: "redis"},
 		{Key: "redis.db", Value: 0},
 		{Key: "runners", Value: 1},
+		{Key: "artifact_registry.host", Value: "artifactregistry"},
+		//nolint:mnd // Default port of artifact registry
+		{Key: "artifact_registry.port", Value: 5000},
 	}
 
 	cfg := &config.AppConfig{}

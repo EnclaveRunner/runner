@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	"github.com/EnclaveRunner/runner/config"
+	pb "github.com/EnclaveRunner/runner/proto_gen"
+	"github.com/EnclaveRunner/shareddeps"
 	"github.com/hibiken/asynq"
 	"github.com/rs/zerolog/log"
 )
@@ -44,7 +46,16 @@ func InitQueueConnection(
 
 	mux := asynq.NewServeMux()
 
-	mux.HandleFunc(TaskTypeNormal, processJob)
+	shareddeps.InitGRPCClient(
+		cfg.ArtifactRegistry.Host,
+		cfg.ArtifactRegistry.Port,
+	)
+
+	normalTaskProcessor := &NormalTaskProcessor{
+		registryClient: pb.NewRegistryServiceClient(shareddeps.GRPCClient),
+	}
+
+	mux.Handle(TaskTypeNormal, normalTaskProcessor)
 
 	go func() {
 		log.Info().Msg("Starting Asynq server...")

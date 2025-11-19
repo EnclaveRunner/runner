@@ -9,6 +9,11 @@ type AppConfig struct {
 
 	Runners int `mapstructure:"runners" validate:"required,numeric,min=1,max=100"`
 
+	ArtifactRegistry struct {
+		Host string `mapstructure:"host" validate:"required,hostname|ip"`
+		Port int    `mapstructure:"port" validate:"required,numeric,min=1,max=65535"`
+	} `mapstructure:"artifact_registry" validate:"required"`
+
 	Redis struct {
 		Host     string `mapstructure:"host"     validate:"required,hostname|ip"`
 		Port     int    `mapstructure:"port"     validate:"required,numeric,min=1,max=65535"`

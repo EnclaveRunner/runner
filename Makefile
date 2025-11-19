@@ -27,7 +27,7 @@ build:
 	go build
 
 proto:
-	protoc --go_out=. --go-grpc_out=. registry.proto
+	protoc --go_out=. --go-grpc_out=. *.proto
 
 # Simulate CI tests
 verify:
