@@ -1,0 +1,105 @@
+name: Sync Proto Specification
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  prepare-targets:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      repos: ${{ steps.set-matrix.outputs.repos }}
+      has-targets: ${{ steps.set-matrix.outputs.has-targets }}
+    steps:
+      - name: Checkout current repository
+        uses: actions/checkout@v5
+
+      - name: Read proto.targets and prepare matrix
+        id: set-matrix
+        run: |
+          if [ ! -f "proto.targets" ]; then
+            echo "has-targets=false" >> $GITHUB_OUTPUT
+            echo "repos=[]" >> $GITHUB_OUTPUT
+            echo "proto.targets file not found"
+            exit 0
+          fi
+
+          # Read targets, filter out empty lines and comments
+          REPOS=$(grep -v '^#' proto.targets | grep -v '^[[:space:]]*$' | sed 's/^/"/;s/$/"/' | paste -sd ',' -)
+
+          if [ -z "$REPOS" ]; then
+            echo "has-targets=false" >> $GITHUB_OUTPUT
+            echo "repos=[]" >> $GITHUB_OUTPUT
+            echo "No targets found in proto.targets"
+          else
+            echo "has-targets=true" >> $GITHUB_OUTPUT
+            echo "repos=[$REPOS]" >> $GITHUB_OUTPUT
+            echo "Found targets: $REPOS"
+          fi
+
+  update-repos:
+    permissions:
+      contents: read
+    needs: prepare-targets
+    if: needs.prepare-targets.outputs.has-targets == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        repo: ${{ fromJSON(needs.prepare-targets.outputs.repos) }}
+
+    steps:
+      - name: Checkout current repository
+        uses: actions/checkout@v5
+        with:
+          path: source-repo
+          token: ${{ secrets.BOT_PAT }}
+
+      - name: Check if task.proto exists
+        id: check-proto
+        run: |
+          if [ -f "source-repo/task.proto" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "Proto file found"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "No Proto file found, skipping sync"
+          fi
+
+      - name: Checkout target repo
+        if: steps.check-proto.outputs.exists == 'true'
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ matrix.repo }}
+          token: ${{ secrets.BOT_PAT }}
+          path: target-repo
+
+      - name: Copy task.proto to target repo
+        if: steps.check-proto.outputs.exists == 'true'
+        run: |
+          cp source-repo/task.proto target-repo/task.proto
+          echo "Copied task.proto to ${{ matrix.repo }}"
+
+      - name: Create Pull Request
+        if: steps.check-proto.outputs.exists == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.BOT_PAT }}
+          path: target-repo
+          commit-message: "chore: update Task proto specification"
+          branch: update-task-proto-spec
+          committer: "Enclave Bot <enclave-automation@marvin-fuchs.de>"
+          author: "Enclave Bot <enclave-automation@marvin-fuchs.de>"
+          title: "chore: Update Task proto specification"
+          body: |
+            # Auto-Sync of Task Proto Specification 📋
+            Automated update from ${{ github.repository }}.
+
+            This PR syncs the latest Task proto specification file.
+
+            **Source commit:** ${{ github.sha }}
+          base: main
+          delete-branch: true
