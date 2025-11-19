@@ -11,9 +11,15 @@ import (
 
 const TaskTypeNormal = "job:normal"
 
+const (
+	taskPriorityCritical = 6
+	taskPriorityDefault  = 3
+	taskPriorityLow      = 1
+)
+
 func InitQueueConnection(
 	ctx context.Context,
-	cfg config.AppConfig,
+	cfg *config.AppConfig,
 	topic string,
 ) {
 	srv := asynq.NewServer(
@@ -29,9 +35,9 @@ func InitQueueConnection(
 				return ctx
 			},
 			Queues: map[string]int{
-				"critical": 6,
-				"default":  3,
-				"low":      1,
+				"critical": taskPriorityCritical,
+				"default":  taskPriorityDefault,
+				"low":      taskPriorityLow,
 			},
 		},
 	)

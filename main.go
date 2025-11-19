@@ -31,7 +31,7 @@ func initialize(ctx context.Context, topic string) {
 
 	shareddeps.InitGRPCServer(cfg, "runner", "v0.0.0", defaults...)
 
-	queue.InitQueueConnection(ctx, *cfg, topic)
+	queue.InitQueueConnection(ctx, cfg, topic)
 }
 
 func listen() {

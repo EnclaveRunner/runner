@@ -16,8 +16,10 @@ import (
 
 const topic = "testing"
 
-var client *asynq.Client
-var inspector *asynq.Inspector
+var (
+	client    *asynq.Client
+	inspector *asynq.Inspector
+)
 
 func TestMain(m *testing.M) {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -50,7 +52,10 @@ func TestPublish(t *testing.T) {
 	tasks := make([]*asynq.TaskInfo, 1000)
 
 	for i := range 1000 {
-		task := asynq.NewTask(queue.TaskTypeNormal, []byte("test payload "+strconv.Itoa(i)))
+		task := asynq.NewTask(
+			queue.TaskTypeNormal,
+			[]byte("test payload "+strconv.Itoa(i)),
+		)
 		taskInfo, err := client.Enqueue(task)
 
 		assert.NoError(t, err)
@@ -68,7 +73,10 @@ func TestPublish(t *testing.T) {
 		for _, taskInfo := range tasks {
 			live, err := inspector.GetTaskInfo(taskInfo.Queue, taskInfo.ID)
 			if err != nil {
-				log.Debug().Str("payload", string(live.Payload)).Str("state", live.State.String()).Msg("Task not yet completed")
+				log.Debug().
+					Str("payload", string(live.Payload)).
+					Str("state", live.State.String()).
+					Msg("Task not yet completed")
 				allFinished = false
 
 				break
@@ -81,5 +89,4 @@ func TestPublish(t *testing.T) {
 	}
 
 	log.Info().Msg("All tasks have been processed")
-
 }
