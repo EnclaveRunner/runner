@@ -107,7 +107,10 @@ func (processor *NormalTaskProcessor) ProcessTask(
 
 	exit, out, err := plugin.Call(payload.Function, payload.Input)
 	if err != nil {
-		taskLogger.Error().Err(err).Str("function", payload.Function).Msg("Failed to call function")
+		taskLogger.Error().
+			Err(err).
+			Str("function", payload.Function).
+			Msg("Failed to call function")
 
 		return &WasmExecutionError{
 			Msg:   fmt.Sprintf("Failed to call plugin %q function", payload.Function),

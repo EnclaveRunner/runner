@@ -48,6 +48,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestHelloWorldTask(t *testing.T) {
+	t.Parallel()
 	taskData := pb.Task{
 		Artifact: &pb.ArtifactIdentifier{
 			Fqn: &pb.FullyQualifiedName{
@@ -81,7 +82,9 @@ func TestHelloWorldTask(t *testing.T) {
 
 		assert.NoError(t, err)
 
-		log.Info().Str("state", live.State.String()).Msg("Task is still processing...")
+		log.Info().
+			Str("state", live.State.String()).
+			Msg("Task is still processing...")
 
 		time.Sleep(100 * time.Millisecond)
 	}
