@@ -15,7 +15,7 @@ jobs:
       has-targets: ${{ steps.set-matrix.outputs.has-targets }}
     steps:
       - name: Checkout current repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Read proto.targets and prepare matrix
         id: set-matrix
@@ -53,7 +53,7 @@ jobs:
 
     steps:
       - name: Checkout current repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           path: source-repo
           token: ${{ secrets.BOT_PAT }}
@@ -71,7 +71,7 @@ jobs:
 
       - name: Checkout target repo
         if: steps.check-proto.outputs.exists == 'true'
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           repository: ${{ matrix.repo }}
           token: ${{ secrets.BOT_PAT }}
