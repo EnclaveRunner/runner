@@ -4,20 +4,28 @@ import (
 	"context"
 
 	"github.com/EnclaveRunner/runner/config"
+	pb "github.com/EnclaveRunner/runner/proto_gen"
 	"github.com/EnclaveRunner/runner/queue"
 	"github.com/EnclaveRunner/shareddeps"
 	shareddepsConfig "github.com/EnclaveRunner/shareddeps/config"
+	"google.golang.org/grpc"
 )
 
 func main() {
 	ctx := context.Background()
 
-	initialize(ctx, "main")
+	cfg := &config.AppConfig{}
 
-	listen()
+	server := initialize(ctx, cfg, "main")
+
+	listen(cfg, server)
 }
 
-func initialize(ctx context.Context, topic string) {
+func initialize(
+	ctx context.Context,
+	cfg *config.AppConfig,
+	topic string,
+) *grpc.Server {
 	// Set configuration defaults
 	defaults := []shareddepsConfig.DefaultValue{
 		//nolint:mnd // Default port of postgres
@@ -30,13 +38,21 @@ func initialize(ctx context.Context, topic string) {
 		{Key: "artifact_registry.port", Value: 5000},
 	}
 
-	cfg := &config.AppConfig{}
+	shareddeps.PopulateAppConfig(cfg, "runner", "v0.1.1", defaults...)
+	server := shareddeps.InitGRPCServer()
 
-	shareddeps.InitGRPCServer(cfg, "runner", "v0.1.1", defaults...)
+	registryClient := pb.NewRegistryServiceClient(
+		shareddeps.InitGRPCClient(
+			cfg.ArtifactRegistry.Host,
+			cfg.ArtifactRegistry.Port,
+		),
+	)
 
-	queue.InitQueueConnection(ctx, cfg, topic)
+	queue.InitQueueConnection(ctx, cfg, registryClient, topic)
+
+	return server
 }
 
-func listen() {
-	shareddeps.StartGRPCServer()
+func listen(cfg *config.AppConfig, server *grpc.Server) {
+	shareddeps.StartGRPCServer(cfg, server)
 }

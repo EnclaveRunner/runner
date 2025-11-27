@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/EnclaveRunner/runner/config"
 	pb "github.com/EnclaveRunner/runner/proto_gen"
 	"github.com/EnclaveRunner/runner/queue"
 	"github.com/hibiken/asynq"
@@ -37,7 +38,8 @@ func TestMain(m *testing.M) {
 	client = asynq.NewClient(redisOpt)
 	inspector = asynq.NewInspector(redisOpt)
 
-	initialize(ctx, topic)
+	cfg := &config.AppConfig{}
+	_ = initialize(ctx, cfg, topic)
 
 	code := m.Run()
 
