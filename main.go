@@ -32,7 +32,7 @@ func initialize(ctx context.Context, topic string) {
 
 	cfg := &config.AppConfig{}
 
-	shareddeps.InitGRPCServer(cfg, "runner", "v0.1.0", defaults...)
+	shareddeps.InitGRPCServer(cfg, "runner", "v0.1.1", defaults...)
 
 	queue.InitQueueConnection(ctx, cfg, topic)
 }
