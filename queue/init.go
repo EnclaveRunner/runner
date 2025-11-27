@@ -22,6 +22,7 @@ const (
 func InitQueueConnection(
 	ctx context.Context,
 	cfg *config.AppConfig,
+	registryClient pb.RegistryServiceClient,
 	topic string,
 ) {
 	srv := asynq.NewServer(
@@ -52,7 +53,7 @@ func InitQueueConnection(
 	)
 
 	normalTaskProcessor := &NormalTaskProcessor{
-		registryClient: pb.NewRegistryServiceClient(shareddeps.GRPCClient),
+		registryClient: registryClient,
 	}
 
 	mux.Handle(TaskTypeNormal, normalTaskProcessor)
