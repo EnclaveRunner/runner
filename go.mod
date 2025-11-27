@@ -3,7 +3,7 @@ module github.com/EnclaveRunner/runner
 go 1.25.2
 
 require (
-	github.com/EnclaveRunner/shareddeps v0.8.1
+	github.com/EnclaveRunner/shareddeps v0.9.1
 	github.com/extism/go-sdk v1.7.1
 	github.com/hibiken/asynq v0.25.1
 	github.com/rs/zerolog v1.34.0
@@ -28,7 +28,6 @@ require (
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.10 // indirect
 	github.com/getkin/kin-openapi v0.133.0 // indirect
-	github.com/gin-contrib/authz v1.0.6 // indirect
 	github.com/gin-contrib/sse v1.1.0 // indirect
 	github.com/gin-gonic/gin v1.11.0 // indirect
 	github.com/go-openapi/jsonpointer v0.21.0 // indirect
