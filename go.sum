@@ -1,5 +1,5 @@
-github.com/EnclaveRunner/shareddeps v0.9.1 h1:a8+bYTgGjbpff7IwGU/aPuePgqf5HIu3dbMOGwa3xNg=
-github.com/EnclaveRunner/shareddeps v0.9.1/go.mod h1:swZbMLp8jxkQGUqy/olES5e6vxN1o7DW+m6WUR/Olww=
+github.com/EnclaveRunner/shareddeps v0.9.2 h1:IV/2HP/CCzy2U2hlXl7OB6M3Y5bH3iBHCul+m1FHVEA=
+github.com/EnclaveRunner/shareddeps v0.9.2/go.mod h1:hK7j3T+N/xm/HPwuJDHGHVs52GNjXQLYsA3gP60gThY=
 github.com/bmatcuk/doublestar/v4 v4.6.1/go.mod h1:xBQ8jztBU6kakFMg+8WGxn0c6z1fTSPVIjEY1Wr7jzc=
 github.com/bmatcuk/doublestar/v4 v4.9.1 h1:X8jg9rRZmJd4yRy7ZeNDRnM+T3ZfHv15JiBJ/avrEXE=
 github.com/bmatcuk/doublestar/v4 v4.9.1/go.mod h1:xBQ8jztBU6kakFMg+8WGxn0c6z1fTSPVIjEY1Wr7jzc=
@@ -13,8 +13,8 @@ github.com/bytedance/sonic v1.14.1 h1:FBMC0zVz5XUmE4z9wF4Jey0An5FueFvOsTKKKtwIl7
 github.com/bytedance/sonic v1.14.1/go.mod h1:gi6uhQLMbTdeP0muCnrjHLeCUPyb70ujhnNlhOylAFc=
 github.com/bytedance/sonic/loader v0.3.0 h1:dskwH8edlzNMctoruo8FPTJDF3vLtDT0sXZwvZJyqeA=
 github.com/bytedance/sonic/loader v0.3.0/go.mod h1:N8A3vUdtUebEY2/VQC0MyhYeKUFosQU6FxH2JmUe6VI=
-github.com/casbin/casbin/v2 v2.134.0 h1:wyO3hZb487GzlGVAI2hUoHQT0ehFD+9B5P+HVG9BVTM=
-github.com/casbin/casbin/v2 v2.134.0/go.mod h1:FmcfntdXLTcYXv/hxgNntcRPqAbwOG9xsism0yXT+18=
+github.com/casbin/casbin/v3 v3.0.0 h1:PGm0wWf6kGKJgGvRzWFjgQ8T2fCvtGXG4XbMx8aYThY=
+github.com/casbin/casbin/v3 v3.0.0/go.mod h1:WNfIA7yAqwlSfatqceIddznwH0tzcXAXuGdARtorJKM=
 github.com/casbin/govaluate v1.3.0/go.mod h1:G/UnbIjZk/0uMNaLwZZmFQrR72tYRZWQkO70si/iR7A=
 github.com/casbin/govaluate v1.10.0 h1:ffGw51/hYH3w3rZcxO/KcaUIDOLP84w7nsidMVgaDG0=
 github.com/casbin/govaluate v1.10.0/go.mod h1:G/UnbIjZk/0uMNaLwZZmFQrR72tYRZWQkO70si/iR7A=
