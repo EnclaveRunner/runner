@@ -38,7 +38,7 @@ func initialize(
 		{Key: "artifact_registry.port", Value: 5000},
 	}
 
-	shareddeps.PopulateAppConfig(cfg, "runner", "v0.1.1", defaults...)
+	shareddeps.PopulateAppConfig(cfg, "runner", "v0.1.2", defaults...)
 	server := shareddeps.InitGRPCServer()
 
 	registryClient := pb.NewRegistryServiceClient(
