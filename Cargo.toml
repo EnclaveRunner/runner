@@ -1,0 +1,11 @@
+[package]
+name = "enclave_runner"
+version = "0.1.3"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.102"
+hyper = "1.8.1"
+wasmtime = "41.0.3"
+wasmtime-wasi = "41.0.3"
+wasmtime-wasi-http = "41.0.3"
