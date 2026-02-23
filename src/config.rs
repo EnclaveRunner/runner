@@ -1,17 +1,17 @@
 use std::env::home_dir;
 
-use anyhow::Ok;
 use figment::{
     Figment,
     providers::{Format, Yaml},
 };
 use serde::{Deserialize, Serialize};
+use sloggers::{Build, types::Severity};
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct ArtifactRegistry {
-    host: String,
-    port: u32,
+    pub host: String,
+    pub port: u32,
 }
 
 impl Default for ArtifactRegistry {
@@ -26,11 +26,11 @@ impl Default for ArtifactRegistry {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct Redis {
-    host: String,
-    port: u32,
-    db: u16,
-    username: Option<String>,
-    password: Option<String>,
+    pub host: String,
+    pub port: u32,
+    pub db: u16,
+    pub username: Option<String>,
+    pub password: Option<String>,
 }
 
 impl Default for Redis {
@@ -48,8 +48,10 @@ impl Default for Redis {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct AppConfig {
-    artifact_registry: ArtifactRegistry,
-    redis: Redis,
+    pub artifact_registry: ArtifactRegistry,
+    pub redis: Redis,
+    pub log_level: Severity,
+    pub human_readable_output: bool,
 }
 
 impl Default for AppConfig {
@@ -57,21 +59,36 @@ impl Default for AppConfig {
         Self {
             artifact_registry: Default::default(),
             redis: Default::default(),
+            log_level: Severity::Info,
+            human_readable_output: false,
         }
     }
 }
 
-pub fn load_settings() -> Result<AppConfig, anyhow::Error> {
-    let mut figment = Figment::new().merge(Yaml::file("runner.yaml"));
+pub fn load_config() -> AppConfig {
+    let mut figment = Figment::new().merge(Yaml::file("runner.yml"));
 
     if home_dir().is_some() {
         let home = home_dir().unwrap();
-        let config_path = home.join(".enclave").join("runner.yaml");
+        let config_path = home.join(".enclave").join("runner.yml");
         figment = figment.merge(Yaml::file(config_path));
     }
 
-    figment = figment.merge(Yaml::file("/etc/enclave/runner.yaml"));
+    figment = figment.merge(Yaml::file("/etc/enclave/runner.yml"));
 
-    let config: AppConfig = figment.extract()?;
-    Ok(config)
+    figment = figment.merge(figment::providers::Env::prefixed("RUNNER_"));
+
+    figment.extract().expect("Failed to load config")
+}
+
+pub fn configure_logger(config: &AppConfig) -> slog::Logger {
+    sloggers::terminal::TerminalLoggerBuilder::new()
+        .level(config.log_level)
+        .format(if config.human_readable_output {
+            sloggers::types::Format::Full
+        } else {
+            sloggers::types::Format::Json
+        })
+        .build()
+        .expect("Failed to create logger")
 }

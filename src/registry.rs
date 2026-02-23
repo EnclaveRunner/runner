@@ -1,3 +1,5 @@
 use crate::api;
 
-pub fn retrieve_artifact(identifier: api::registry::ArtifactIdentifier) {}
+pub fn retrieve_artifact(identifier: api::registry::ArtifactIdentifier) {
+
+}
