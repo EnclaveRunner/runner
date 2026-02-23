@@ -6,6 +6,11 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0.102"
 hyper = "1.8.1"
+prost = "0.14.3"
+prost-types = "0.14.3"
 wasmtime = "41.0.3"
 wasmtime-wasi = "41.0.3"
 wasmtime-wasi-http = "41.0.3"
+
+[build-dependencies]
+prost-build = "0.14.3"
