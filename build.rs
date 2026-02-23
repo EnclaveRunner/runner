@@ -1,5 +1,5 @@
 use std::io::Result;
 fn main() -> Result<()> {
-    prost_build::compile_protos(&["task.proto"], &["."])?;
+    tonic_prost_build::configure().compile_protos(&["task.proto"], &["./"])?;
     Ok(())
 }
