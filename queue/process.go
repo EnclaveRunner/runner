@@ -25,11 +25,7 @@ func (processor *NormalTaskProcessor) ProcessTask(
 	ctx context.Context,
 	task *asynq.Task,
 ) error {
-	// Add task ID to log context if available
 	logCtx := log.With()
-	if id, ok := asynq.GetTaskID(ctx); ok {
-		logCtx = logCtx.Str("taskID", id)
-	}
 
 	taskLogger := logCtx.Logger()
 
@@ -44,7 +40,10 @@ func (processor *NormalTaskProcessor) ProcessTask(
 		}
 	}
 
-	if payload.Artifact == nil ||
+	if payload.TaskId != "" {
+		logCtx = logCtx.Str("taskID", payload.TaskId)
+	} else if payload.Artifact == nil ||
+		payload.TaskId == "" ||
 		payload.Artifact.Fqn == nil ||
 		payload.Artifact.Fqn.Source == "" ||
 		payload.Artifact.Fqn.Author == "" ||
