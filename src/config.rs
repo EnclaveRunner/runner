@@ -27,7 +27,7 @@ impl Default for ArtifactRegistry {
 #[serde(default)]
 pub struct Redis {
     pub host: String,
-    pub port: u32,
+    pub port: u16,
     pub db: u16,
     pub username: Option<String>,
     pub password: Option<String>,
@@ -47,9 +47,32 @@ impl Default for Redis {
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(default)]
+pub struct Database {
+    pub host: String,
+    pub port: u16,
+    pub username: String,
+    pub password: String,
+    pub db: String,
+}
+
+impl Default for Database {
+    fn default() -> Self {
+        Self {
+            host: "postgres".to_string(),
+            port: 5432,
+            username: "enclave".to_string(),
+            password: "enclave".to_string(),
+            db: "enclave".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(default)]
 pub struct AppConfig {
     pub artifact_registry: ArtifactRegistry,
     pub redis: Redis,
+    pub database: Database,
     pub log_level: Severity,
     pub human_readable_output: bool,
 }
@@ -59,6 +82,7 @@ impl Default for AppConfig {
         Self {
             artifact_registry: Default::default(),
             redis: Default::default(),
+            database: Default::default(),
             log_level: Severity::Info,
             human_readable_output: false,
         }
@@ -76,7 +100,7 @@ pub fn load_config() -> AppConfig {
 
     figment = figment.merge(Yaml::file("/etc/enclave/runner.yml"));
 
-    figment = figment.merge(figment::providers::Env::prefixed("RUNNER_"));
+    figment = figment.merge(figment::providers::Env::prefixed("ENCLAVE_"));
 
     figment.extract().expect("Failed to load config")
 }

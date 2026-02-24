@@ -1,8 +1,16 @@
-use std::{clone, process::{ExitCode, exit}};
+use std::{
+    clone,
+    process::{ExitCode, exit},
+};
 
-use slog::{debug, info, error};
+use asynq::backend::RedisConnectionType;
+use redis::{ConnectionAddr, ConnectionInfo, IntoConnectionInfo, RedisConnectionInfo};
+use slog::{debug, error, info};
+use sqlx::{Postgres, postgres::PgPoolOptions};
 
-use crate::api::registry::{ArtifactIdentifier, FullyQualifiedName, artifact_identifier::Identifier};
+use crate::api::registry::{
+    ArtifactIdentifier, FullyQualifiedName, artifact_identifier::Identifier,
+};
 
 pub mod api {
     pub mod registry {
@@ -15,6 +23,8 @@ pub mod api {
 }
 
 mod config;
+mod orm;
+mod queue;
 mod registry;
 
 #[tokio::main]
@@ -24,37 +34,70 @@ async fn main() -> ExitCode {
 
     info!(logger, "Initlizied config!");
 
-    let registry_client = match api::registry::registry_service_client::RegistryServiceClient::connect(format!("{}:{}", app_config.artifact_registry.host, app_config.artifact_registry.port)).await {
-        Ok(client) => client,
+    let registry_client =
+        match api::registry::registry_service_client::RegistryServiceClient::connect(format!(
+            "{}:{}",
+            app_config.artifact_registry.host, app_config.artifact_registry.port
+        ))
+        .await
+        {
+            Ok(client) => client,
+            Err(err) => {
+                error!(logger, "Failed to connect to artifact registry"; "error" => %err);
+                return ExitCode::FAILURE;
+            }
+        };
+
+    let mut redis_connection_info_details =
+        RedisConnectionInfo::default().set_db(app_config.redis.db.into());
+    if app_config.redis.username.is_some() {
+        redis_connection_info_details = redis_connection_info_details
+            .set_username(app_config.redis.username.clone().unwrap().as_str());
+    }
+
+    if app_config.redis.password.is_some() {
+        redis_connection_info_details =
+            redis_connection_info_details.set_password(app_config.redis.password.clone().unwrap());
+    }
+
+    let redis_connection_info =
+        ConnectionAddr::Tcp(app_config.redis.host.clone(), app_config.redis.port)
+            .into_connection_info()
+            .unwrap()
+            .set_redis_settings(redis_connection_info_details);
+
+    let redis_config = match RedisConnectionType::single(redis_connection_info) {
+        Ok(config) => config,
         Err(err) => {
-            error!(logger, "Failed to connect to artifact registry"; "error" => %err);
-            return ExitCode::FAILURE
+            error!(logger, "Failed to connect to redis"; "error" => %err);
+            return ExitCode::FAILURE;
         }
     };
 
-    let 
-
-    let fqn = FullyQualifiedName {
-        source: "enclave".to_string(),
-        author: "example".to_string(),
-        name: "hello-world".to_string(),
-    };
-
-    let identifier = "0.0.1";
-
-    let artifact_identifier = ArtifactIdentifier {
-        fqn: Some(fqn.clone()),
-        identifier: Some(Identifier::Tag(identifier.to_string()))
-    };
-
-    let artifact_content = match registry::retrieve_artifact(registry_client, artifact_identifier).await {
-        Ok(content) => content,
+    let pool = match PgPoolOptions::new()
+        .connect(&format!(
+            "postgres://{}:{}@{}:{}/{}",
+            app_config.database.username,
+            app_config.database.password,
+            app_config.database.host,
+            app_config.database.port,
+            app_config.database.db
+        ))
+        .await
+    {
+        Ok(pool) => pool,
         Err(err) => {
-            error!(logger, "Failed to retrieve artifact"; "error" => %err, "artifact" => format!("{}:{}/{}@{}", fqn.source, fqn.author, fqn.name, identifier));
-            return ExitCode::FAILURE
+            error!(logger, "Failed to connecto to postgres"; "host" => app_config.database.host.clone(), "port" => app_config.database.port, "db" => app_config.database.db.clone(), "error" => %err);
+            return ExitCode::FAILURE;
         }
     };
 
-    info!(logger, "Successfully pulled artifact!");
+    match queue::start_processor(logger.clone(), redis_config, pool, registry_client).await {
+        Ok(_) => {}
+        Err(err) => {
+            error!(logger, "Failed to start task processor"; "error" => %err)
+        }
+    };
+
     ExitCode::SUCCESS
 }
