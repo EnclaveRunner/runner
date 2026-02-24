@@ -20,9 +20,10 @@ wasmtime = "41.0.3"
 wasmtime-wasi = "41.0.3"
 wasmtime-wasi-http = "41.0.3"
 asynq = { version = "0.1", features = ["json", "macros"] }
-sqlx = { version = "0.8", features = [ "runtime-tokio", "postgres", "time" ] }
+sqlx = { version = "0.8", features = [ "runtime-tokio", "postgres", "time", "uuid" ] }
 time = "0.3"
 redis = "1.0.4"
+uuid = "1.21.0"
 
 [build-dependencies]
 prost-build = "0.14.3"

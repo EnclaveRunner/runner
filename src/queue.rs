@@ -40,39 +40,35 @@ pub async fn start_processor(
         let db_pool = db_pool.clone();
         let registry_client = registry_client.clone();
         async move {
-            let task = match api::task::Task::decode(queue_task.payload.as_slice()) {
-                Ok(task) => task,
-                Err(err) => {
-                    error!(logger, "Failed to decode task body"; "error" => %err);
-                    return Err(asynq::error::Error::other(err.to_string()));
-                }
-            };
-
-            let logger = logger.new(slog::o!("task_id" => task.task_id.clone()));
-
-            log_task_assigned(logger.clone(), db_pool.clone(), task.task_id.clone())
+            handle_task(logger.clone(), db_pool, registry_client, queue_task)
                 .await
-                .map_err(|e| asynq::error::Error::other(e.to_string()))?;
-
-            let artifact = fetch_artifact(logger.clone(), registry_client, &task)
-                .await
-                .map_err(|e| asynq::error::Error::other(e.to_string()))?;
-
-            log_task_running(logger.clone(), db_pool.clone(), task.task_id.clone())
-                .await
-                .map_err(|e| asynq::error::Error::other(e.to_string()))?;
-
-            execute_artifact(logger.clone(), db_pool.clone(), &task, artifact)
-                .await
-                .map_err(|e| asynq::error::Error::other(e.to_string()))?;
-
-            Ok(())
+                .map_err(|e| {
+                    error!(logger, "Task failed"; "error" => %e);
+                    asynq::error::Error::other(e.to_string())
+                })
         }
     });
 
     let mut server = Server::new(redis_config, config).await?;
 
     server.run(mux).await
+}
+
+async fn handle_task(
+    logger: Logger,
+    db_pool: Pool<Postgres>,
+    registry_client: RegistryServiceClient<Channel>,
+    queue_task: Task,
+) -> Result<(), Error> {
+    let task = api::task::Task::decode(queue_task.payload.as_slice())?;
+    let logger = logger.new(slog::o!("task_id" => task.task_id.clone()));
+
+    log_task_assigned(logger.clone(), db_pool.clone(), task.task_id.clone()).await?;
+    let artifact = fetch_artifact(logger.clone(), registry_client, &task).await?;
+    log_task_running(logger.clone(), db_pool.clone(), task.task_id.clone()).await?;
+    execute_artifact(logger.clone(), db_pool.clone(), &task, artifact).await?;
+
+    Ok(())
 }
 
 async fn log_task_assigned(logger: Logger, db: Pool<Postgres>, task_id: String) -> Result<(), Error> {
