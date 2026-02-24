@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use anyhow::{anyhow, Error};
+use anyhow::{Error, anyhow};
 use asynq::{
     backend::RedisConnectionType,
     serve_mux::ServeMux,
@@ -8,7 +8,7 @@ use asynq::{
     task::Task,
 };
 use prost::Message;
-use slog::{error, info, Logger};
+use slog::{Logger, error, info};
 use sqlx::{Pool, Postgres};
 use tonic::transport::Channel;
 
@@ -71,16 +71,38 @@ async fn handle_task(
     Ok(())
 }
 
-async fn log_task_assigned(logger: Logger, db: Pool<Postgres>, task_id: String) -> Result<(), Error> {
+async fn log_task_assigned(
+    logger: Logger,
+    db: Pool<Postgres>,
+    task_id: String,
+) -> Result<(), Error> {
     info!(logger, "Task assigned");
     orm::update_status(db.clone(), task_id.clone(), TaskStatus::Assigned).await?;
-    orm::log(db, task_id, LogLevel::Info, LogIssuer::System, b"Task assigned".to_vec()).await
+    orm::log(
+        db,
+        task_id,
+        LogLevel::Info,
+        LogIssuer::System,
+        b"Task assigned".to_vec(),
+    )
+    .await
 }
 
-async fn log_task_running(logger: Logger, db: Pool<Postgres>, task_id: String) -> Result<(), Error> {
+async fn log_task_running(
+    logger: Logger,
+    db: Pool<Postgres>,
+    task_id: String,
+) -> Result<(), Error> {
     info!(logger, "Task running");
     orm::update_status(db.clone(), task_id.clone(), TaskStatus::Running).await?;
-    orm::log(db, task_id, LogLevel::Info, LogIssuer::System, b"Task running".to_vec()).await
+    orm::log(
+        db,
+        task_id,
+        LogLevel::Info,
+        LogIssuer::System,
+        b"Task running".to_vec(),
+    )
+    .await
 }
 
 async fn fetch_artifact(
@@ -89,6 +111,9 @@ async fn fetch_artifact(
     task: &api::task::Task,
 ) -> Result<Vec<u8>, Error> {
     let identifier = task
+        .function
+        .clone()
+        .ok_or_else(|| anyhow!("Task has no function identifier"))?
         .artifact
         .clone()
         .ok_or_else(|| anyhow!("Task has no artifact identifier"))?;
@@ -103,6 +128,5 @@ async fn execute_artifact(
     _artifact: Vec<u8>,
 ) -> Result<(), Error> {
     info!(logger, "Executing artifact");
-    // TODO: implement wasmtime execution with task.function and task.input
     Ok(())
 }

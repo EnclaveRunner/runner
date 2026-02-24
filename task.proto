@@ -6,9 +6,13 @@ import "registry.proto";
 
 package task;
 
+message FunctionIdentifier {
+    registry.ArtifactIdentifier artifact = 1;
+    string interface = 2;
+    string name = 3;
+}
+
 message Task {
     string task_id = 1;
-    registry.ArtifactIdentifier artifact = 2;
-    string function = 3;
-    bytes input = 4;
+    FunctionIdentifier function = 2;
 }

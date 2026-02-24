@@ -1,16 +1,11 @@
 use std::{
-    clone,
-    process::{ExitCode, exit},
+    process::{ExitCode},
 };
 
 use asynq::backend::RedisConnectionType;
-use redis::{ConnectionAddr, ConnectionInfo, IntoConnectionInfo, RedisConnectionInfo};
-use slog::{debug, error, info};
-use sqlx::{Postgres, postgres::PgPoolOptions};
-
-use crate::api::registry::{
-    ArtifactIdentifier, FullyQualifiedName, artifact_identifier::Identifier,
-};
+use redis::{ConnectionAddr, IntoConnectionInfo, RedisConnectionInfo};
+use slog::{error, info};
+use sqlx::{postgres::PgPoolOptions};
 
 pub mod api {
     pub mod registry {
