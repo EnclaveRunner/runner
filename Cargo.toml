@@ -12,11 +12,14 @@ prost-types = "0.14.3"
 serde = "1.0.228"
 slog = "2.8.2"
 sloggers = {version = "2.2.0", features = ["json"]}
+tokio = "1.49.0"
+tokio-stream = "0.1.18"
 tonic = "0.14.5"
 tonic-prost = "0.14.5"
 wasmtime = "41.0.3"
 wasmtime-wasi = "41.0.3"
 wasmtime-wasi-http = "41.0.3"
+asynq = { version = "0.1", features = ["json", "macros"] }
 
 [build-dependencies]
 prost-build = "0.14.3"
