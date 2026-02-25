@@ -21,6 +21,7 @@ mod config;
 mod orm;
 mod queue;
 mod registry;
+mod wasm_host;
 
 #[tokio::main]
 async fn main() -> ExitCode {

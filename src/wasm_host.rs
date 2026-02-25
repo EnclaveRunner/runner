@@ -1,0 +1,363 @@
+use slog::{Logger, debug, error, info, warn};
+use sqlx::{Pool, Postgres};
+use std::io;
+use std::pin::Pin;
+use std::task::{Context, Poll};
+use tokio::io::AsyncWrite;
+use wasmtime::component::{Component, Linker, ResourceTable, Val};
+use wasmtime::*;
+use wasmtime_wasi::cli::{IsTerminal, StdoutStream};
+use wasmtime_wasi::{WasiCtx, WasiCtxView, WasiView};
+use wasmtime_wasi_http::types::default_send_request;
+use wasmtime_wasi_http::{WasiHttpCtx, WasiHttpView};
+
+use crate::api::task::{Task, Val as ProtoVal, val};
+use crate::orm;
+
+use std::sync::Arc;
+
+/// A line-buffered [`AsyncWrite`] that forwards each complete line to `handler`.
+struct LineWriter {
+    handler: Arc<dyn Fn(String) + Send + Sync>,
+    buffer: Vec<u8>,
+}
+
+impl LineWriter {
+    fn flush_lines(&mut self, include_incomplete: bool) {
+        let mut start = 0;
+        loop {
+            match self.buffer[start..].iter().position(|&b| b == b'\n') {
+                Some(pos) => {
+                    let line =
+                        String::from_utf8_lossy(&self.buffer[start..start + pos]).into_owned();
+                    (self.handler)(line);
+                    start += pos + 1;
+                }
+                None => break,
+            }
+        }
+        if include_incomplete && start < self.buffer.len() {
+            let line = String::from_utf8_lossy(&self.buffer[start..]).into_owned();
+            (self.handler)(line);
+            start = self.buffer.len();
+        }
+        if start > 0 {
+            self.buffer.drain(..start);
+        }
+    }
+}
+
+impl AsyncWrite for LineWriter {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        self.buffer.extend_from_slice(buf);
+        self.flush_lines(false);
+        Poll::Ready(Ok(buf.len()))
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        self.flush_lines(true);
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        self.flush_lines(true);
+        Poll::Ready(Ok(()))
+    }
+}
+
+/// A [`StdoutStream`] that calls `handler` for every line written by the guest.
+///
+/// Both stdout and stderr can be wired up independently:
+/// ```rust
+/// .stdout(LogStream::new(move |line| info!(logger, "{}", line)))
+/// .stderr(LogStream::new(move |line| error!(logger, "{}", line)))
+/// ```
+pub struct LogStream {
+    handler: Arc<dyn Fn(String) + Send + Sync>,
+}
+
+impl LogStream {
+    pub fn new(handler: impl Fn(String) + Send + Sync + 'static) -> Self {
+        Self {
+            handler: Arc::new(handler),
+        }
+    }
+}
+
+impl IsTerminal for LogStream {
+    fn is_terminal(&self) -> bool {
+        false
+    }
+}
+
+impl StdoutStream for LogStream {
+    fn async_stream(&self) -> Box<dyn AsyncWrite + Send + Sync> {
+        Box::new(LineWriter {
+            handler: Arc::clone(&self.handler),
+            buffer: Vec::new(),
+        })
+    }
+}
+
+pub struct ComponentRunStates {
+    // These two are required basically as a standard way to enable the impl of IoView and
+    // WasiView.
+    // impl of WasiView is required by [`wasmtime_wasi::p2::add_to_linker_sync`]
+    pub wasi_ctx: WasiCtx,
+    pub resource_table: ResourceTable,
+    pub http_ctx: WasiHttpCtx,
+    pub logger: Logger, // You can add other custom host states if needed
+}
+
+impl WasiView for ComponentRunStates {
+    fn ctx(&mut self) -> WasiCtxView<'_> {
+        WasiCtxView {
+            ctx: &mut self.wasi_ctx,
+            table: &mut self.resource_table,
+        }
+    }
+}
+
+impl WasiHttpView for ComponentRunStates {
+    fn ctx(&mut self) -> &mut WasiHttpCtx {
+        &mut self.http_ctx
+    }
+
+    fn table(&mut self) -> &mut ResourceTable {
+        &mut self.resource_table
+    }
+
+    fn send_request(
+        &mut self,
+        request: hyper::Request<wasmtime_wasi_http::body::HyperOutgoingBody>,
+        config: wasmtime_wasi_http::types::OutgoingRequestConfig,
+    ) -> wasmtime_wasi_http::HttpResult<wasmtime_wasi_http::types::HostFutureIncomingResponse> {
+        // Blocking of requests is possible here
+        let uri = request.uri().to_string();
+        debug!(self.logger, "Processing http request"; "uri" => uri);
+        Ok(default_send_request(request, config))
+    }
+}
+
+pub async fn execute_wasm(
+    logger: Logger,
+    db: Pool<Postgres>,
+    task: Task,
+    artifact: Vec<u8>,
+) -> Result<()> {
+    let mut config = Config::new();
+    config.async_support(true);
+    let engine = Engine::new(&config)?;
+    debug!(logger, "Initialized engine");
+    let mut linker = Linker::new(&engine);
+    wasmtime_wasi::p2::add_to_linker_async(&mut linker)?;
+    wasmtime_wasi_http::add_only_http_to_linker_async(&mut linker)?;
+    debug!(logger, "Linked WASIp2 and http");
+
+
+    let component = Component::from_binary(&engine, &artifact)?;
+    debug!(logger, "Loaded component");
+
+    let socker_addr_check_logger = logger.new(slog::o!());
+    let stdout_logger = logger.new(slog::o!());
+    let stderr_logger = logger.new(slog::o!());
+    let stdout_db = db.clone();
+    let stderr_db = db.clone();
+    let task_id_stdout = task.task_id.clone();
+    let task_id_stderr = task.task_id.clone();
+    let wasi = WasiCtx::builder()
+        .stdout(LogStream::new(move |line| {
+            info!(stdout_logger, "Artifact: {}", line);
+            let task_id = task_id_stdout.clone();
+            tokio::spawn(orm::log(
+                stdout_db.clone(),
+                task_id,
+                orm::LogLevel::Error,
+                orm::LogIssuer::Artifact,
+                line.into_bytes(),
+            ));
+        }))
+        .stderr(LogStream::new(move |line| {
+            error!(stderr_logger, "Artifact: {}", line);
+            let task_id = task_id_stderr.clone();
+            tokio::spawn(orm::log(
+                stderr_db.clone(),
+                task_id,
+                orm::LogLevel::Error,
+                orm::LogIssuer::Artifact,
+                line.into_bytes(),
+            ));
+        }))
+        .socket_addr_check(move |_address, _reason| {
+            // Blocking of socket requests is possible here
+            warn!(socker_addr_check_logger, "Rejected socked request");
+            Box::pin(async move { false })
+        })
+        .args(&task.arguments)
+        .envs(
+            &task
+                .environment_variables
+                .into_iter()
+                .map(|e| (e.key, e.value))
+                .collect::<Vec<_>>(),
+        )
+        .build();
+    debug!(logger, "Built WASI context");
+
+    let state = ComponentRunStates {
+        wasi_ctx: wasi,
+        resource_table: ResourceTable::new(),
+        http_ctx: WasiHttpCtx::new(),
+        logger: logger.new(slog::o!()),
+    };
+
+    let mut store = Store::new(&engine, state);
+    // Instantiate it as an async component (required when async support is enabled)
+    let instance = linker.instantiate_async(&mut store, &component).await?;
+    debug!(logger, "Initialized component");
+
+
+    let interface_identifier = format!(
+        "{}:{}/{}",
+        task.function
+            .clone()
+            .unwrap()
+            .artifact
+            .unwrap()
+            .package
+            .unwrap()
+            .namespace,
+        task.function
+            .clone()
+            .unwrap()
+            .artifact
+            .unwrap()
+            .package
+            .unwrap()
+            .name,
+        task.function.clone().unwrap().interface,
+    );
+
+    // Get the index for the exported interface
+    let interface_idx = instance
+        .get_export_index(&mut store, None, &interface_identifier)
+        .ok_or_else(|| anyhow::anyhow!("Cannot get interface {}", interface_identifier))?;
+    // Get the index for the exported function in the exported interface
+    let parent_export_idx = Some(&interface_idx);
+    let func_idx = instance
+        .get_export_index(
+            &mut store,
+            parent_export_idx,
+            &task.function.clone().unwrap().name,
+        )
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Cannot get function {} in interface {} interface",
+                task.function.unwrap().name,
+                interface_identifier,
+            )
+        })?;
+
+    let func = instance
+        .get_func(&mut store, func_idx)
+        .expect("Unreachable since we've got func_idx");
+    debug!(logger, "Found function");
+
+    let mut return_values = vec![Val::String("".to_string()); 1];
+    let params = convert_to_wasm_params(task.parameters)?;
+    func.call_async(&mut store, params.as_slice(), &mut return_values)
+        .await?;
+
+    debug!(logger, "Finished execution");
+    Ok(())
+}
+
+fn convert_to_wasm_params(task_params: Vec<ProtoVal>) -> Result<Vec<Val>> {
+    task_params.into_iter().map(proto_val_to_wasm_val).collect()
+}
+
+fn proto_val_to_wasm_val(proto: ProtoVal) -> Result<Val> {
+    use val::Value;
+    match proto
+        .value
+        .ok_or_else(|| anyhow::anyhow!("Val has no value set"))?
+    {
+        Value::BoolVal(v) => Ok(Val::Bool(v)),
+        Value::S8Val(v) => Ok(Val::S8(v as i8)),
+        Value::U8Val(v) => Ok(Val::U8(v as u8)),
+        Value::S16Val(v) => Ok(Val::S16(v as i16)),
+        Value::U16Val(v) => Ok(Val::U16(v as u16)),
+        Value::S32Val(v) => Ok(Val::S32(v)),
+        Value::U32Val(v) => Ok(Val::U32(v)),
+        Value::S64Val(v) => Ok(Val::S64(v)),
+        Value::U64Val(v) => Ok(Val::U64(v)),
+        Value::F32Val(v) => Ok(Val::Float32(v)),
+        Value::F64Val(v) => Ok(Val::Float64(v)),
+        Value::CharVal(v) => {
+            let c = char::from_u32(v)
+                .ok_or_else(|| anyhow::anyhow!("Invalid Unicode scalar value: {v}"))?;
+            Ok(Val::Char(c))
+        }
+        Value::StringVal(v) => Ok(Val::String(v)),
+        Value::ListVal(list) => {
+            let items = list
+                .values
+                .into_iter()
+                .map(proto_val_to_wasm_val)
+                .collect::<Result<Vec<_>>>()?;
+            Ok(Val::List(items))
+        }
+        Value::TupleVal(tuple) => {
+            let items = tuple
+                .values
+                .into_iter()
+                .map(proto_val_to_wasm_val)
+                .collect::<Result<Vec<_>>>()?;
+            Ok(Val::Tuple(items))
+        }
+        Value::OptionVal(opt) => {
+            // opt.value: Option<Box<Val>> (boxed to break the recursive size cycle)
+            let inner = opt
+                .value
+                .map(|v| proto_val_to_wasm_val(*v))
+                .transpose()?
+                .map(Box::new);
+            Ok(Val::Option(inner))
+        }
+        Value::ResultVal(res) => {
+            let inner = res
+                .value
+                .map(|v| proto_val_to_wasm_val(*v))
+                .transpose()?
+                .map(Box::new);
+            Ok(Val::Result(if res.is_ok { Ok(inner) } else { Err(inner) }))
+        }
+        Value::RecordVal(record) => {
+            let fields = record
+                .fields
+                .into_iter()
+                .map(|f| {
+                    let v = f
+                        .value
+                        .ok_or_else(|| anyhow::anyhow!("Record field '{}' has no value", f.name))?;
+                    Ok((f.name, proto_val_to_wasm_val(*v)?))
+                })
+                .collect::<Result<Vec<_>>>()?;
+            Ok(Val::Record(fields))
+        }
+        Value::VariantVal(variant) => {
+            let inner = variant
+                .value
+                .map(|v| proto_val_to_wasm_val(*v))
+                .transpose()?
+                .map(Box::new);
+            Ok(Val::Variant(variant.name, inner))
+        }
+        Value::EnumVal(name) => Ok(Val::Enum(name)),
+        Value::FlagsVal(flags) => Ok(Val::Flags(flags.flags)),
+    }
+}

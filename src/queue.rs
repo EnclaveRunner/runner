@@ -15,7 +15,7 @@ use tonic::transport::Channel;
 use crate::{
     api::{self, registry::registry_service_client::RegistryServiceClient},
     orm::{self, LogIssuer, LogLevel, TaskStatus},
-    registry,
+    registry, wasm_host,
 };
 
 const TASK_TYPE_NORMAL: &str = "job:normal";
@@ -63,10 +63,10 @@ async fn handle_task(
     let task = api::task::Task::decode(queue_task.payload.as_slice())?;
     let logger = logger.new(slog::o!("task_id" => task.task_id.clone()));
 
-    log_task_assigned(logger.clone(), db_pool.clone(), task.task_id.clone()).await?;
-    let artifact = fetch_artifact(logger.clone(), registry_client, &task).await?;
-    log_task_running(logger.clone(), db_pool.clone(), task.task_id.clone()).await?;
-    execute_artifact(logger.clone(), db_pool.clone(), &task, artifact).await?;
+    log_task_assigned(logger.new(slog::o!()), db_pool.clone(), task.task_id.clone()).await?;
+    let artifact = fetch_artifact(logger.new(slog::o!()), registry_client, &task).await?;
+    log_task_running(logger.new(slog::o!()), db_pool.clone(), task.task_id.clone()).await?;
+    execute_artifact(logger.new(slog::o!()), db_pool.clone(), &task, artifact).await?;
 
     Ok(())
 }
@@ -123,10 +123,13 @@ async fn fetch_artifact(
 
 async fn execute_artifact(
     logger: Logger,
-    _db: Pool<Postgres>,
-    _task: &api::task::Task,
-    _artifact: Vec<u8>,
+    db: Pool<Postgres>,
+    task: &api::task::Task,
+    artifact: Vec<u8>,
 ) -> Result<(), Error> {
-    info!(logger, "Executing artifact");
+    match wasm_host::execute_wasm(logger, db.clone(), task.clone(), artifact).await {
+        Ok(()) => {}
+        Err(err) => return Err(anyhow!("Failed to execute task: {}", err)),
+    };
     Ok(())
 }
