@@ -1,4 +1,4 @@
-.PHONY: test clean verify fmt lint build proto help
+.PHONY: verify test fmt build proto help
 
 # Default target
 all: test
@@ -13,34 +13,22 @@ test:
 
 # Format code
 fmt:
-	golangci-lint fmt
-
-# Lint code (requires golangci-lint to be installed)
-lint:
-	golangci-lint run --fix
-
-# Clean test cache
-clean:
-	go clean -testcache
+    cargo fmt
 
 build:
-	go build
+    cargo build
 
 proto:
 	protoc --go_out=. --go-grpc_out=. *.proto
 
 # Simulate CI tests
 verify:
-	@echo "Running CI tests..."
-	@echo "Checking Linting:"
-	make lint
+	@echo "Checking Formatting:"
+    make fmt
 	@echo "Checking Tests:"
 	make test
 	@echo "Checking Build:"
 	make build
-	make clean
-	@echo "Checking mod tidy"
-	go mod tidy
 	@echo "✅ CI Test will pass, you are ready to commit / open the PR! Thank you for your contribution :)"
 # Show help
 help:

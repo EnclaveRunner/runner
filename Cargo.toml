@@ -1,0 +1,30 @@
+[package]
+name = "enclave_runner"
+version = "0.1.3"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.102"
+figment = {version = "0.10.19", features = ["env", "yaml"]}
+hyper = "1.8.1"
+prost = "0.14.3"
+prost-types = "0.14.3"
+serde = "1.0.228"
+slog = "2.8.2"
+sloggers = {version = "2.2.0", features = ["json"]}
+tokio = "1.49.0"
+tokio-stream = "0.1.18"
+tonic = "0.14.5"
+tonic-prost = "0.14.5"
+wasmtime = "41.0.3"
+wasmtime-wasi = "41.0.3"
+wasmtime-wasi-http = "41.0.3"
+asynq = { version = "0.1", features = ["json", "macros"] }
+sqlx = { version = "0.8", features = [ "runtime-tokio", "postgres", "time", "uuid" ] }
+time = "0.3"
+redis = "1.0.4"
+uuid = "1.21.0"
+
+[build-dependencies]
+prost-build = "0.14.3"
+tonic-prost-build = "0.14.5"

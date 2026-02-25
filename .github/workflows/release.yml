@@ -31,19 +31,18 @@ jobs:
         if: steps.version.outputs.hasNextVersion == 'true'
         run: |
           VERSION="${{ steps.version.outputs.version }}"
+          TOML_VERSION="${VERSION#v}"
           echo "📝 Updating to version: $VERSION"
 
-          # Update the Version file
+          # Update the Version file (keep v prefix)
           echo "$VERSION" > Version
           echo "✅ Updated Version file"
 
           # Search for and update version references in other files
           echo "🔍 Searching for version patterns to update..."
-          find . -type f \( -name "main.go" \) \
-            -exec grep -l "v[0-9]\+\.[0-9]\+\.[0-9]\+" {} \; | \
-          while read -r file; do
+          find . -type f -name "Cargo.toml" | while read -r file; do
             echo "  🔧 Updating $file"
-            sed -i.bak "s/v[0-9]\+\.[0-9]\+\.[0-9]\+/$VERSION/g" "$file" && rm -f "$file.bak"
+            sed -i.bak "/^\[package\]/,/^\[/{s/^version = \"[0-9]\+\.[0-9]\+\.[0-9]\+\"/version = \"$TOML_VERSION\"/}" "$file" && rm -f "$file.bak"
           done
 
           # Commit all changes together
