@@ -4,10 +4,13 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 pub enum TaskStatus {
+    #[allow(dead_code)]
     Queued,
     Assigned,
     Running,
+    #[allow(dead_code)]
     Succeeded,
+    #[allow(dead_code)]
     Failed,
 }
 
@@ -24,9 +27,11 @@ impl TaskStatus {
 }
 
 pub enum LogLevel {
+    #[allow(dead_code)]
     Debug,
     Info,
     Error,
+    #[allow(dead_code)]
     Fatal,
 }
 
@@ -55,7 +60,11 @@ impl LogIssuer {
     }
 }
 
-pub async fn update_status(db: Pool<Postgres>, task_id: String, status: TaskStatus) -> Result<(), Error> {
+pub async fn update_status(
+    db: Pool<Postgres>,
+    task_id: String,
+    status: TaskStatus,
+) -> Result<(), Error> {
     let uuid = Uuid::parse_str(&task_id)?;
     let result = sqlx::query("UPDATE virtual_tasks SET status = $1 WHERE task_id = $2")
         .bind(status.as_str())
@@ -70,7 +79,13 @@ pub async fn update_status(db: Pool<Postgres>, task_id: String, status: TaskStat
     Ok(())
 }
 
-pub async fn log(db: Pool<Postgres>, task_id: String, level: LogLevel, issuer: LogIssuer, data: Vec<u8>) -> Result<(), Error> {
+pub async fn log(
+    db: Pool<Postgres>,
+    task_id: String,
+    level: LogLevel,
+    issuer: LogIssuer,
+    data: Vec<u8>,
+) -> Result<(), Error> {
     let uuid = Uuid::parse_str(&task_id)?;
     sqlx::query(
         "INSERT INTO task_logs (task_id, timestamp, status, issuer, payload) VALUES ($1, $2, $3, $4, $5)",

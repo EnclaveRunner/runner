@@ -1,21 +1,17 @@
 
-# Build runner executable
-FROM golang:1.25-alpine AS builder
+FROM rust:1.93.1-slim AS build
 
 WORKDIR /app
 
-COPY . .
+RUN apt-get update && apt-get install -y protobuf-compiler
 
-RUN go mod download && CGO_ENABLED=0 GOOS=linux go build -o /app/runner .
+COPY Cargo.toml Cargo.lock build.rs registry.proto task.proto ./
+COPY src/ src/
 
-# Create a minimal runtime image
-FROM alpine:3.23
+RUN cargo build --release
 
-RUN apk --no-cache add ca-certificates
-WORKDIR /app
+FROM gcr.io/distroless/cc-debian12:latest
 
-COPY --from=builder /app/runner .
+COPY --from=build /app/target/release/enclave_runner /app/enclave_runner
 
-EXPOSE 8080
-
-CMD ["./runner"]
+CMD [ "/app/enclave_runner" ]

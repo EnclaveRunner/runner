@@ -63,9 +63,9 @@ async fn handle_task(
     let task = api::task::Task::decode(queue_task.payload.as_slice())?;
     let logger = logger.new(slog::o!("task_id" => task.task_id.clone()));
 
-    log_task_assigned(logger.new(slog::o!()), db_pool.clone(), task.task_id.clone()).await?;
+    log_task_assigned(logger.new(slog::o!()), db_pool.clone(), &task.task_id).await?;
     let artifact = fetch_artifact(logger.new(slog::o!()), registry_client, &task).await?;
-    log_task_running(logger.new(slog::o!()), db_pool.clone(), task.task_id.clone()).await?;
+    log_task_running(logger.new(slog::o!()), db_pool.clone(), &task.task_id).await?;
     execute_artifact(logger.new(slog::o!()), db_pool.clone(), &task, artifact).await?;
 
     Ok(())
@@ -74,13 +74,13 @@ async fn handle_task(
 async fn log_task_assigned(
     logger: Logger,
     db: Pool<Postgres>,
-    task_id: String,
+    task_id: &str,
 ) -> Result<(), Error> {
     info!(logger, "Task assigned");
-    orm::update_status(db.clone(), task_id.clone(), TaskStatus::Assigned).await?;
+    orm::update_status(db.clone(), task_id.to_owned(), TaskStatus::Assigned).await?;
     orm::log(
         db,
-        task_id,
+        task_id.to_owned(),
         LogLevel::Info,
         LogIssuer::System,
         b"Task assigned".to_vec(),
@@ -91,13 +91,13 @@ async fn log_task_assigned(
 async fn log_task_running(
     logger: Logger,
     db: Pool<Postgres>,
-    task_id: String,
+    task_id: &str,
 ) -> Result<(), Error> {
     info!(logger, "Task running");
-    orm::update_status(db.clone(), task_id.clone(), TaskStatus::Running).await?;
+    orm::update_status(db.clone(), task_id.to_owned(), TaskStatus::Running).await?;
     orm::log(
         db,
-        task_id,
+        task_id.to_owned(),
         LogLevel::Info,
         LogIssuer::System,
         b"Task running".to_vec(),
@@ -112,7 +112,7 @@ async fn fetch_artifact(
 ) -> Result<Vec<u8>, Error> {
     let identifier = task
         .function
-        .clone()
+        .as_ref()
         .ok_or_else(|| anyhow!("Task has no function identifier"))?
         .artifact
         .clone()

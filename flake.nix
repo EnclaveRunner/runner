@@ -22,7 +22,7 @@
             protobuf_29
             protoc-gen-go
             protoc-gen-go-grpc
-            
+
             # Rust toolchain
             rustup
           ];

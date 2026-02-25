@@ -221,25 +221,24 @@ pub async fn execute_wasm(
     debug!(logger, "Initialized component");
 
 
+    let function = task
+        .function
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Task has no function"))?;
+    let artifact = function
+        .artifact
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Function has no artifact"))?;
+    let package = artifact
+        .package
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Artifact has no package"))?;
+
     let interface_identifier = format!(
         "{}:{}/{}",
-        task.function
-            .clone()
-            .unwrap()
-            .artifact
-            .unwrap()
-            .package
-            .unwrap()
-            .namespace,
-        task.function
-            .clone()
-            .unwrap()
-            .artifact
-            .unwrap()
-            .package
-            .unwrap()
-            .name,
-        task.function.clone().unwrap().interface,
+        package.namespace,
+        package.name,
+        function.interface,
     );
 
     // Get the index for the exported interface
@@ -252,12 +251,12 @@ pub async fn execute_wasm(
         .get_export_index(
             &mut store,
             parent_export_idx,
-            &task.function.clone().unwrap().name,
+            &function.name,
         )
         .ok_or_else(|| {
             anyhow::anyhow!(
-                "Cannot get function {} in interface {} interface",
-                task.function.unwrap().name,
+                "Cannot get function {} in interface {}",
+                function.name,
                 interface_identifier,
             )
         })?;
