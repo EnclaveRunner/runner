@@ -790,7 +790,7 @@ checksum = "edd0f118536f44f5ccd48bcb8b111bdc3de888b58c74639dfb034a357d0f206d"
 
 [[package]]
 name = "enclave_runner"
-version = "0.1.3"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "asynq",

@@ -100,3 +100,23 @@ pub async fn log(
 
     Ok(())
 }
+
+pub async fn write_result(
+    db: Pool<Postgres>,
+    task_id: String,
+    result: String,
+) -> Result<(), Error> {
+    let uuid = Uuid::parse_str(&task_id)?;
+
+    let result = sqlx::query("UPDATE virtual_tasks SET result_payload = $1 WHERE task_id = $2")
+        .bind(result.as_bytes())
+        .bind(uuid)
+        .execute(&db)
+        .await?;
+
+    if result.rows_affected() == 0 {
+        return Err(anyhow!("Task not found"));
+    }
+
+    Ok(())
+}

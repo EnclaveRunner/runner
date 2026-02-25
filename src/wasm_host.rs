@@ -264,6 +264,35 @@ pub async fn execute_wasm(
         .await?;
 
     debug!(logger, "Finished execution");
+
+    // Expect the function to return a tuple (result_string, error_string)
+    match &return_values[0] {
+        Val::Tuple(items) if items.len() == 2 => match (&items[0], &items[1]) {
+            (Val::String(result), Val::String(err)) => {
+                if err.is_empty() {
+                    info!(logger, "Execution result: {}", result);
+                    orm::write_result(db.clone(), task.task_id.clone(), result.clone()).await?;
+                } else {
+                    error!(logger, "Execution error: {}", err);
+                    tokio::spawn(orm::log(
+                        db.clone(),
+                        task.task_id.clone(),
+                        orm::LogLevel::Error,
+                        orm::LogIssuer::System,
+                        err.clone().into_bytes(),
+                    ));
+                    return Err(anyhow::anyhow!("{}", err));
+                }
+            }
+            _ => {
+                error!(logger, "Return value tuple does not contain two strings");
+            }
+        },
+        _ => {
+            error!(logger, "Return value is not a two-element tuple");
+        }
+    }
+
     Ok(())
 }
 
