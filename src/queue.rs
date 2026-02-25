@@ -71,11 +71,7 @@ async fn handle_task(
     Ok(())
 }
 
-async fn log_task_assigned(
-    logger: Logger,
-    db: Pool<Postgres>,
-    task_id: &str,
-) -> Result<(), Error> {
+async fn log_task_assigned(logger: Logger, db: Pool<Postgres>, task_id: &str) -> Result<(), Error> {
     info!(logger, "Task assigned");
     orm::update_status(db.clone(), task_id.to_owned(), TaskStatus::Assigned).await?;
     orm::log(
@@ -88,11 +84,7 @@ async fn log_task_assigned(
     .await
 }
 
-async fn log_task_running(
-    logger: Logger,
-    db: Pool<Postgres>,
-    task_id: &str,
-) -> Result<(), Error> {
+async fn log_task_running(logger: Logger, db: Pool<Postgres>, task_id: &str) -> Result<(), Error> {
     info!(logger, "Task running");
     orm::update_status(db.clone(), task_id.to_owned(), TaskStatus::Running).await?;
     orm::log(

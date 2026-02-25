@@ -158,7 +158,6 @@ pub async fn execute_wasm(
     wasmtime_wasi_http::add_only_http_to_linker_async(&mut linker)?;
     debug!(logger, "Linked WASIp2 and http");
 
-
     let component = Component::from_binary(&engine, &artifact)?;
     debug!(logger, "Loaded component");
 
@@ -220,7 +219,6 @@ pub async fn execute_wasm(
     let instance = linker.instantiate_async(&mut store, &component).await?;
     debug!(logger, "Initialized component");
 
-
     let function = task
         .function
         .as_ref()
@@ -236,9 +234,7 @@ pub async fn execute_wasm(
 
     let interface_identifier = format!(
         "{}:{}/{}",
-        package.namespace,
-        package.name,
-        function.interface,
+        package.namespace, package.name, function.interface,
     );
 
     // Get the index for the exported interface
@@ -248,11 +244,7 @@ pub async fn execute_wasm(
     // Get the index for the exported function in the exported interface
     let parent_export_idx = Some(&interface_idx);
     let func_idx = instance
-        .get_export_index(
-            &mut store,
-            parent_export_idx,
-            &function.name,
-        )
+        .get_export_index(&mut store, parent_export_idx, &function.name)
         .ok_or_else(|| {
             anyhow::anyhow!(
                 "Cannot get function {} in interface {}",

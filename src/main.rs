@@ -1,11 +1,9 @@
-use std::{
-    process::{ExitCode},
-};
+use std::process::ExitCode;
 
 use asynq::backend::RedisConnectionType;
 use redis::{ConnectionAddr, IntoConnectionInfo, RedisConnectionInfo};
 use slog::{error, info};
-use sqlx::{postgres::PgPoolOptions};
+use sqlx::postgres::PgPoolOptions;
 
 pub mod api {
     pub mod registry {
