@@ -5,7 +5,7 @@ use asynq::{
     backend::RedisConnectionType,
     serve_mux::ServeMux,
     server::{Server, ServerConfig},
-    task::Task,
+    task::{Task},
 };
 use prost::Message;
 use slog::{Logger, error, info};
@@ -36,14 +36,29 @@ pub async fn start_processor(
     let mut mux = ServeMux::new();
 
     mux.handle_async_func(TASK_TYPE_NORMAL, move |queue_task: Task| {
+        let task_id = queue_task
+            .clone()
+            .result_writer()
+            .unwrap()
+            .task_id()
+            .to_string();
+        let task_id_for_error = task_id.clone();
         let logger = logger.new(slog::o!("task_id" => queue_task.options.task_id.clone()));
         let db_pool = db_pool.clone();
+        let db_pool_error = db_pool.clone();
         let registry_client = registry_client.clone();
         async move {
             handle_task(logger.clone(), db_pool, registry_client, queue_task)
                 .await
-                .map_err(|e| {
+                .map_err(move |e| {
                     error!(logger, "Task failed"; "error" => %e);
+                    tokio::spawn(orm::log(
+                        db_pool_error,
+                        task_id_for_error,
+                        LogLevel::Fatal,
+                        LogIssuer::System,
+                        e.to_string(),
+                    ));
                     asynq::error::Error::other(e.to_string())
                 })
         }
@@ -61,11 +76,19 @@ async fn handle_task(
     queue_task: Task,
 ) -> Result<(), Error> {
     let task = api::task::Task::decode(queue_task.payload.as_slice())?;
+    let task_id = queue_task.result_writer().unwrap().task_id().to_string();
 
-    log_task_assigned(logger.new(slog::o!()), db_pool.clone(), &task.task_id).await?;
+    log_task_assigned(logger.new(slog::o!()), db_pool.clone(), &task_id).await?;
     let artifact = fetch_artifact(logger.new(slog::o!()), registry_client, &task).await?;
-    log_task_running(logger.new(slog::o!()), db_pool.clone(), &task.task_id).await?;
-    let result = execute_artifact(logger.new(slog::o!()), db_pool.clone(), &task, artifact).await?;
+    log_task_running(logger.new(slog::o!()), db_pool.clone(), &task_id).await?;
+    let result = execute_artifact(
+        logger.new(slog::o!()),
+        db_pool.clone(),
+        &task,
+        task_id,
+        artifact,
+    )
+    .await?;
 
     let result_writer = match queue_task.result_writer() {
         Some(writer) => writer,
@@ -91,7 +114,7 @@ async fn log_task_assigned(logger: Logger, db: Pool<Postgres>, task_id: &str) ->
         task_id.to_owned(),
         LogLevel::Info,
         LogIssuer::System,
-        b"Task assigned".to_vec(),
+        "Task assigned".to_string(),
     )
     .await
 }
@@ -103,7 +126,7 @@ async fn log_task_running(logger: Logger, db: Pool<Postgres>, task_id: &str) -> 
         task_id.to_owned(),
         LogLevel::Info,
         LogIssuer::System,
-        b"Task running".to_vec(),
+        "Task running".to_string(),
     )
     .await
 }
@@ -128,9 +151,10 @@ async fn execute_artifact(
     logger: Logger,
     db: Pool<Postgres>,
     task: &api::task::Task,
+    task_id: String,
     artifact: Vec<u8>,
 ) -> Result<Vec<u8>, Error> {
-    wasm_host::execute_wasm(logger, db.clone(), task.clone(), artifact)
+    wasm_host::execute_wasm(logger, db.clone(), task.clone(), task_id, artifact)
         .await
         .map_err(|err| anyhow!("Execution failed: {}", err))
 }
