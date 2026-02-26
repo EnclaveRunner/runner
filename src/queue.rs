@@ -5,7 +5,7 @@ use asynq::{
     backend::RedisConnectionType,
     serve_mux::ServeMux,
     server::{Server, ServerConfig},
-    task::{Task},
+    task::Task,
 };
 use prost::Message;
 use slog::{Logger, error, info};
