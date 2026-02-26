@@ -147,8 +147,9 @@ pub async fn execute_wasm(
     logger: Logger,
     db: Pool<Postgres>,
     task: Task,
+    task_id: String,
     artifact: Vec<u8>,
-) -> Result<()> {
+) -> Result<Vec<u8>> {
     let mut config = Config::new();
     config.async_support(true);
     let engine = Engine::new(&config)?;
@@ -166,8 +167,8 @@ pub async fn execute_wasm(
     let stderr_logger = logger.new(slog::o!());
     let stdout_db = db.clone();
     let stderr_db = db.clone();
-    let task_id_stdout = task.task_id.clone();
-    let task_id_stderr = task.task_id.clone();
+    let task_id_stdout = task_id.clone();
+    let task_id_stderr = task_id.clone();
     let wasi = WasiCtx::builder()
         .stdout(LogStream::new(move |line| {
             info!(stdout_logger, "Artifact: {}", line);
@@ -177,7 +178,7 @@ pub async fn execute_wasm(
                 task_id,
                 orm::LogLevel::Error,
                 orm::LogIssuer::Artifact,
-                line.into_bytes(),
+                line,
             ));
         }))
         .stderr(LogStream::new(move |line| {
@@ -188,7 +189,7 @@ pub async fn execute_wasm(
                 task_id,
                 orm::LogLevel::Error,
                 orm::LogIssuer::Artifact,
-                line.into_bytes(),
+                line,
             ));
         }))
         .socket_addr_check(move |_address, _reason| {
@@ -264,7 +265,24 @@ pub async fn execute_wasm(
         .await?;
 
     debug!(logger, "Finished execution");
-    Ok(())
+
+    // Expect the function to return a tuple (result_string, error_string)
+    match &return_values[0] {
+        Val::Tuple(items) if items.len() == 2 => match (&items[0], &items[1]) {
+            (Val::String(result), Val::String(err)) => {
+                if err.is_empty() {
+                    info!(logger, "Execution result: {}", result);
+                    Ok(result.as_bytes().to_vec())
+                } else {
+                    Err(anyhow::anyhow!("Execution error: {}", err))
+                }
+            }
+            _ => Err(anyhow::anyhow!(
+                "Return value tuple does not contain two strings"
+            )),
+        },
+        _ => Err(anyhow::anyhow!("Return value is not a two-element tuple")),
+    }
 }
 
 fn convert_to_wasm_params(task_params: Vec<ProtoVal>) -> Result<Vec<Val>> {
