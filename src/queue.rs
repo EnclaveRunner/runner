@@ -14,7 +14,7 @@ use tonic::transport::Channel;
 
 use crate::{
     api::{self, registry::registry_service_client::RegistryServiceClient},
-    orm::{self, LogIssuer, LogLevel, TaskStatus},
+    orm::{self, LogIssuer, LogLevel},
     registry, wasm_host,
 };
 
@@ -36,7 +36,7 @@ pub async fn start_processor(
     let mut mux = ServeMux::new();
 
     mux.handle_async_func(TASK_TYPE_NORMAL, move |queue_task: Task| {
-        let logger = logger.clone();
+        let logger = logger.new(slog::o!("task_id" => queue_task.options.task_id.clone()));
         let db_pool = db_pool.clone();
         let registry_client = registry_client.clone();
         async move {
@@ -61,19 +61,31 @@ async fn handle_task(
     queue_task: Task,
 ) -> Result<(), Error> {
     let task = api::task::Task::decode(queue_task.payload.as_slice())?;
-    let logger = logger.new(slog::o!("task_id" => task.task_id.clone()));
 
     log_task_assigned(logger.new(slog::o!()), db_pool.clone(), &task.task_id).await?;
     let artifact = fetch_artifact(logger.new(slog::o!()), registry_client, &task).await?;
     log_task_running(logger.new(slog::o!()), db_pool.clone(), &task.task_id).await?;
-    execute_artifact(logger.new(slog::o!()), db_pool.clone(), &task, artifact).await?;
+    let result = execute_artifact(logger.new(slog::o!()), db_pool.clone(), &task, artifact).await?;
 
+    let result_writer = match queue_task.result_writer() {
+        Some(writer) => writer,
+        None => {
+            error!(logger, "Failed to write result due to writer being none");
+            return Ok(());
+        }
+    };
+
+    match result_writer.write(&result).await {
+        Ok(_) => {}
+        Err(err) => {
+            error!(logger, "Failed to write result"; "error" => %err);
+        }
+    };
     Ok(())
 }
 
 async fn log_task_assigned(logger: Logger, db: Pool<Postgres>, task_id: &str) -> Result<(), Error> {
     info!(logger, "Task assigned");
-    orm::update_status(db.clone(), task_id.to_owned(), TaskStatus::Assigned).await?;
     orm::log(
         db,
         task_id.to_owned(),
@@ -86,7 +98,6 @@ async fn log_task_assigned(logger: Logger, db: Pool<Postgres>, task_id: &str) ->
 
 async fn log_task_running(logger: Logger, db: Pool<Postgres>, task_id: &str) -> Result<(), Error> {
     info!(logger, "Task running");
-    orm::update_status(db.clone(), task_id.to_owned(), TaskStatus::Running).await?;
     orm::log(
         db,
         task_id.to_owned(),
@@ -118,10 +129,8 @@ async fn execute_artifact(
     db: Pool<Postgres>,
     task: &api::task::Task,
     artifact: Vec<u8>,
-) -> Result<(), Error> {
-    match wasm_host::execute_wasm(logger, db.clone(), task.clone(), artifact).await {
-        Ok(()) => {}
-        Err(err) => return Err(anyhow!("Failed to execute task: {}", err)),
-    };
-    Ok(())
+) -> Result<Vec<u8>, Error> {
+    wasm_host::execute_wasm(logger, db.clone(), task.clone(), artifact)
+        .await
+        .map_err(|err| anyhow!("Execution failed: {}", err))
 }

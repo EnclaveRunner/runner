@@ -1,30 +1,7 @@
-use anyhow::{Error, Ok, anyhow};
+use anyhow::Error;
 use sqlx::{Pool, Postgres};
 use time::OffsetDateTime;
 use uuid::Uuid;
-
-pub enum TaskStatus {
-    #[allow(dead_code)]
-    Queued,
-    Assigned,
-    Running,
-    #[allow(dead_code)]
-    Succeeded,
-    #[allow(dead_code)]
-    Failed,
-}
-
-impl TaskStatus {
-    fn as_str(&self) -> &'static str {
-        match self {
-            TaskStatus::Queued => "QUEUED",
-            TaskStatus::Assigned => "ASSIGNED",
-            TaskStatus::Running => "RUNNING",
-            TaskStatus::Succeeded => "SUCCEEDED",
-            TaskStatus::Failed => "FAILED",
-        }
-    }
-}
 
 pub enum LogLevel {
     #[allow(dead_code)]
@@ -60,25 +37,6 @@ impl LogIssuer {
     }
 }
 
-pub async fn update_status(
-    db: Pool<Postgres>,
-    task_id: String,
-    status: TaskStatus,
-) -> Result<(), Error> {
-    let uuid = Uuid::parse_str(&task_id)?;
-    let result = sqlx::query("UPDATE virtual_tasks SET status = $1 WHERE task_id = $2")
-        .bind(status.as_str())
-        .bind(uuid)
-        .execute(&db)
-        .await?;
-
-    if result.rows_affected() == 0 {
-        return Err(anyhow!("Task not found"));
-    }
-
-    Ok(())
-}
-
 pub async fn log(
     db: Pool<Postgres>,
     task_id: String,
@@ -97,26 +55,6 @@ pub async fn log(
     .bind(data)
     .execute(&db)
     .await?;
-
-    Ok(())
-}
-
-pub async fn write_result(
-    db: Pool<Postgres>,
-    task_id: String,
-    result: String,
-) -> Result<(), Error> {
-    let uuid = Uuid::parse_str(&task_id)?;
-
-    let result = sqlx::query("UPDATE virtual_tasks SET result_payload = $1 WHERE task_id = $2")
-        .bind(result.as_bytes())
-        .bind(uuid)
-        .execute(&db)
-        .await?;
-
-    if result.rows_affected() == 0 {
-        return Err(anyhow!("Task not found"));
-    }
 
     Ok(())
 }

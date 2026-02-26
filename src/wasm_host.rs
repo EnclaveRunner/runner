@@ -148,7 +148,7 @@ pub async fn execute_wasm(
     db: Pool<Postgres>,
     task: Task,
     artifact: Vec<u8>,
-) -> Result<()> {
+) -> Result<Vec<u8>> {
     let mut config = Config::new();
     config.async_support(true);
     let engine = Engine::new(&config)?;
@@ -271,7 +271,7 @@ pub async fn execute_wasm(
             (Val::String(result), Val::String(err)) => {
                 if err.is_empty() {
                     info!(logger, "Execution result: {}", result);
-                    orm::write_result(db.clone(), task.task_id.clone(), result.clone()).await?;
+                    Ok(result.as_bytes().to_vec())
                 } else {
                     error!(logger, "Execution error: {}", err);
                     tokio::spawn(orm::log(
@@ -281,19 +281,15 @@ pub async fn execute_wasm(
                         orm::LogIssuer::System,
                         err.clone().into_bytes(),
                     ));
-                    return Err(anyhow::anyhow!("{}", err));
+                    Err(anyhow::anyhow!("{}", err))
                 }
             }
-            _ => {
-                error!(logger, "Return value tuple does not contain two strings");
-            }
+            _ => Err(anyhow::anyhow!(
+                "Return value tuple does not contain two strings"
+            )),
         },
-        _ => {
-            error!(logger, "Return value is not a two-element tuple");
-        }
+        _ => Err(anyhow::anyhow!("Return value is not a two-element tuple")),
     }
-
-    Ok(())
 }
 
 fn convert_to_wasm_params(task_params: Vec<ProtoVal>) -> Result<Vec<Val>> {
