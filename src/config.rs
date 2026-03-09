@@ -100,7 +100,7 @@ pub fn load_config() -> AppConfig {
 
     figment = figment.merge(Yaml::file("/etc/enclave/runner.yml"));
 
-    figment = figment.merge(figment::providers::Env::prefixed("ENCLAVE_"));
+    figment = figment.merge(figment::providers::Env::prefixed("ENCLAVE_").split("__"));
 
     figment.extract().expect("Failed to load config")
 }

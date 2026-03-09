@@ -28,16 +28,20 @@ async fn main() -> ExitCode {
 
     info!(logger, "Initlizied config!");
 
+    let artifact_registry_addr = format!(
+        "{}:{}",
+        app_config.artifact_registry.host, app_config.artifact_registry.port
+    );
+
     let registry_client =
-        match api::registry::registry_service_client::RegistryServiceClient::connect(format!(
-            "{}:{}",
-            app_config.artifact_registry.host, app_config.artifact_registry.port
-        ))
+        match api::registry::registry_service_client::RegistryServiceClient::connect(
+            artifact_registry_addr.clone(),
+        )
         .await
         {
             Ok(client) => client,
             Err(err) => {
-                error!(logger, "Failed to connect to artifact registry"; "error" => %err);
+                error!(logger, "Failed to connect to artifact registry"; "error" => %err, "address" => artifact_registry_addr);
                 return ExitCode::FAILURE;
             }
         };
