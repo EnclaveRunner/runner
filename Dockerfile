@@ -1,5 +1,5 @@
 
-FROM rust:1.93.1-slim AS build
+FROM rust:1.95.0-slim AS build
 
 WORKDIR /app
 
