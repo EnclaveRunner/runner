@@ -1,4 +1,5 @@
 use std::process::ExitCode;
+use std::sync::Arc;
 
 use asynq::backend::RedisConnectionType;
 use redis::{ConnectionAddr, IntoConnectionInfo, RedisConnectionInfo};
@@ -90,7 +91,17 @@ async fn main() -> ExitCode {
         }
     };
 
-    match queue::start_processor(logger.clone(), redis_config, pool, registry_client).await {
+    let wasm_host = match wasm_host::WasmHost::new() {
+        Ok(host) => Arc::new(host),
+        Err(err) => {
+            error!(logger, "Failed to initialize Wasm engine"; "error" => %err);
+            return ExitCode::FAILURE;
+        }
+    };
+
+    match queue::start_processor(logger.clone(), redis_config, pool, registry_client, wasm_host)
+        .await
+    {
         Ok(_) => {}
         Err(err) => {
             error!(logger, "Failed to start task processor"; "error" => %err)
