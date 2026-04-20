@@ -2,6 +2,7 @@ use slog::{Logger, debug, error, info, warn};
 use sqlx::{Pool, Postgres};
 use std::io;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 use tokio::io::AsyncWrite;
 use wasmtime::component::{Component, Linker, ResourceTable, Val};
@@ -13,8 +14,6 @@ use wasmtime_wasi_http::{WasiHttpCtx, WasiHttpView};
 
 use crate::api::task::{Task, Val as ProtoVal, val};
 use crate::orm;
-
-use std::sync::Arc;
 
 /// A line-buffered [`AsyncWrite`] that forwards each complete line to `handler`.
 struct LineWriter {
@@ -143,145 +142,162 @@ impl WasiHttpView for ComponentRunStates {
     }
 }
 
-pub async fn execute_wasm(
-    logger: Logger,
-    db: Pool<Postgres>,
-    task: Task,
-    task_id: String,
-    artifact: Vec<u8>,
-) -> Result<Vec<u8>> {
-    let mut config = Config::new();
-    config.async_support(true);
-    let engine = Engine::new(&config)?;
-    debug!(logger, "Initialized engine");
-    let mut linker = Linker::new(&engine);
-    wasmtime_wasi::p2::add_to_linker_async(&mut linker)?;
-    wasmtime_wasi_http::add_only_http_to_linker_async(&mut linker)?;
-    debug!(logger, "Linked WASIp2 and http");
+/// Shared Wasm runtime that holds the pre-configured [`Engine`] and [`Linker`].
+///
+/// Create once at application startup and share (via `Arc<WasmHost>`) across
+/// task executions.  Per-execution isolation is provided by a fresh [`Store`].
+pub struct WasmHost {
+    engine: Engine,
+    linker: Linker<ComponentRunStates>,
+}
 
-    let component = Component::from_binary(&engine, &artifact)?;
-    debug!(logger, "Loaded component");
+impl WasmHost {
+    pub fn new() -> Result<Self> {
+        let mut config = Config::new();
+        config.async_support(true);
+        let engine = Engine::new(&config)?;
 
-    let socker_addr_check_logger = logger.new(slog::o!());
-    let stdout_logger = logger.new(slog::o!());
-    let stderr_logger = logger.new(slog::o!());
-    let stdout_db = db.clone();
-    let stderr_db = db.clone();
-    let task_id_stdout = task_id.clone();
-    let task_id_stderr = task_id.clone();
-    let wasi = WasiCtx::builder()
-        .stdout(LogStream::new(move |line| {
-            info!(stdout_logger, "Artifact: {}", line);
-            let task_id = task_id_stdout.clone();
-            tokio::spawn(orm::log(
-                stdout_db.clone(),
-                task_id,
-                orm::LogLevel::Error,
-                orm::LogIssuer::Artifact,
-                line,
-            ));
-        }))
-        .stderr(LogStream::new(move |line| {
-            error!(stderr_logger, "Artifact: {}", line);
-            let task_id = task_id_stderr.clone();
-            tokio::spawn(orm::log(
-                stderr_db.clone(),
-                task_id,
-                orm::LogLevel::Error,
-                orm::LogIssuer::Artifact,
-                line,
-            ));
-        }))
-        .socket_addr_check(move |_address, _reason| {
-            // Blocking of socket requests is possible here
-            warn!(socker_addr_check_logger, "Rejected socked request");
-            Box::pin(async move { false })
-        })
-        .args(&task.arguments)
-        .envs(
-            &task
-                .environment_variables
-                .into_iter()
-                .map(|e| (e.key, e.value))
-                .collect::<Vec<_>>(),
-        )
-        .build();
-    debug!(logger, "Built WASI context");
+        let mut linker = Linker::new(&engine);
+        wasmtime_wasi::p2::add_to_linker_async(&mut linker)?;
+        wasmtime_wasi_http::add_only_http_to_linker_async(&mut linker)?;
 
-    let state = ComponentRunStates {
-        wasi_ctx: wasi,
-        resource_table: ResourceTable::new(),
-        http_ctx: WasiHttpCtx::new(),
-        logger: logger.new(slog::o!()),
-    };
+        Ok(Self { engine, linker })
+    }
 
-    let mut store = Store::new(&engine, state);
-    // Instantiate it as an async component (required when async support is enabled)
-    let instance = linker.instantiate_async(&mut store, &component).await?;
-    debug!(logger, "Initialized component");
+    pub async fn execute(
+        &self,
+        logger: Logger,
+        db: Pool<Postgres>,
+        task: Task,
+        task_id: String,
+        artifact: Vec<u8>,
+    ) -> Result<Vec<u8>> {
+        let component = Component::from_binary(&self.engine, &artifact)?;
+        debug!(logger, "Loaded component");
 
-    let function = task
-        .function
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("Task has no function"))?;
-    let artifact = function
-        .artifact
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("Function has no artifact"))?;
-    let package = artifact
-        .package
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("Artifact has no package"))?;
-
-    let interface_identifier = format!(
-        "{}:{}/{}",
-        package.namespace, package.name, function.interface,
-    );
-
-    // Get the index for the exported interface
-    let interface_idx = instance
-        .get_export_index(&mut store, None, &interface_identifier)
-        .ok_or_else(|| anyhow::anyhow!("Cannot get interface {}", interface_identifier))?;
-    // Get the index for the exported function in the exported interface
-    let parent_export_idx = Some(&interface_idx);
-    let func_idx = instance
-        .get_export_index(&mut store, parent_export_idx, &function.name)
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "Cannot get function {} in interface {}",
-                function.name,
-                interface_identifier,
+        let socker_addr_check_logger = logger.new(slog::o!());
+        let stdout_logger = logger.new(slog::o!());
+        let stderr_logger = logger.new(slog::o!());
+        let stdout_db = db.clone();
+        let stderr_db = db.clone();
+        let task_id_stdout = task_id.clone();
+        let task_id_stderr = task_id.clone();
+        let wasi = WasiCtx::builder()
+            .stdout(LogStream::new(move |line| {
+                info!(stdout_logger, "Artifact: {}", line);
+                let task_id = task_id_stdout.clone();
+                tokio::spawn(orm::log(
+                    stdout_db.clone(),
+                    task_id,
+                    orm::LogLevel::Error,
+                    orm::LogIssuer::Artifact,
+                    line,
+                ));
+            }))
+            .stderr(LogStream::new(move |line| {
+                error!(stderr_logger, "Artifact: {}", line);
+                let task_id = task_id_stderr.clone();
+                tokio::spawn(orm::log(
+                    stderr_db.clone(),
+                    task_id,
+                    orm::LogLevel::Error,
+                    orm::LogIssuer::Artifact,
+                    line,
+                ));
+            }))
+            .socket_addr_check(move |_address, _reason| {
+                // Blocking of socket requests is possible here
+                warn!(socker_addr_check_logger, "Rejected socked request");
+                Box::pin(async move { false })
+            })
+            .args(&task.arguments)
+            .envs(
+                &task
+                    .environment_variables
+                    .into_iter()
+                    .map(|e| (e.key, e.value))
+                    .collect::<Vec<_>>(),
             )
-        })?;
+            .build();
+        debug!(logger, "Built WASI context");
 
-    let func = instance
-        .get_func(&mut store, func_idx)
-        .expect("Unreachable since we've got func_idx");
-    debug!(logger, "Found function");
+        let state = ComponentRunStates {
+            wasi_ctx: wasi,
+            resource_table: ResourceTable::new(),
+            http_ctx: WasiHttpCtx::new(),
+            logger: logger.new(slog::o!()),
+        };
 
-    let mut return_values = vec![Val::String("".to_string()); 1];
-    let params = convert_to_wasm_params(task.parameters)?;
-    func.call_async(&mut store, params.as_slice(), &mut return_values)
-        .await?;
+        let mut store = Store::new(&self.engine, state);
+        let instance = self
+            .linker
+            .instantiate_async(&mut store, &component)
+            .await?;
+        debug!(logger, "Initialized component");
 
-    debug!(logger, "Finished execution");
+        let function = task
+            .function
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Task has no function"))?;
+        let artifact = function
+            .artifact
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Function has no artifact"))?;
+        let package = artifact
+            .package
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Artifact has no package"))?;
 
-    // Expect the function to return a tuple (result_string, error_string)
-    match &return_values[0] {
-        Val::Tuple(items) if items.len() == 2 => match (&items[0], &items[1]) {
-            (Val::String(result), Val::String(err)) => {
-                if err.is_empty() {
-                    info!(logger, "Execution result: {}", result);
-                    Ok(result.as_bytes().to_vec())
-                } else {
-                    Err(anyhow::anyhow!("Execution error: {}", err))
+        let interface_identifier = format!(
+            "{}:{}/{}",
+            package.namespace, package.name, function.interface,
+        );
+
+        // Get the index for the exported interface
+        let interface_idx = instance
+            .get_export_index(&mut store, None, &interface_identifier)
+            .ok_or_else(|| anyhow::anyhow!("Cannot get interface {}", interface_identifier))?;
+        // Get the index for the exported function in the exported interface
+        let parent_export_idx = Some(&interface_idx);
+        let func_idx = instance
+            .get_export_index(&mut store, parent_export_idx, &function.name)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Cannot get function {} in interface {}",
+                    function.name,
+                    interface_identifier,
+                )
+            })?;
+
+        let func = instance
+            .get_func(&mut store, func_idx)
+            .expect("Unreachable since we've got func_idx");
+        debug!(logger, "Found function");
+
+        let mut return_values = vec![Val::String("".to_string()); 1];
+        let params = convert_to_wasm_params(task.parameters)?;
+        func.call_async(&mut store, params.as_slice(), &mut return_values)
+            .await?;
+
+        debug!(logger, "Finished execution");
+
+        // Expect the function to return a tuple (result_string, error_string)
+        match &return_values[0] {
+            Val::Tuple(items) if items.len() == 2 => match (&items[0], &items[1]) {
+                (Val::String(result), Val::String(err)) => {
+                    if err.is_empty() {
+                        info!(logger, "Execution result: {}", result);
+                        Ok(result.as_bytes().to_vec())
+                    } else {
+                        Err(anyhow::anyhow!("Execution error: {}", err))
+                    }
                 }
-            }
-            _ => Err(anyhow::anyhow!(
-                "Return value tuple does not contain two strings"
-            )),
-        },
-        _ => Err(anyhow::anyhow!("Return value is not a two-element tuple")),
+                _ => Err(anyhow::anyhow!(
+                    "Return value tuple does not contain two strings"
+                )),
+            },
+            _ => Err(anyhow::anyhow!("Return value is not a two-element tuple")),
+        }
     }
 }
 

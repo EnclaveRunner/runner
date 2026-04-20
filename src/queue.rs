@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use anyhow::{Error, anyhow};
 use asynq::{
@@ -25,6 +26,7 @@ pub async fn start_processor(
     redis_config: RedisConnectionType,
     db_pool: Pool<Postgres>,
     registry_client: RegistryServiceClient<Channel>,
+    wasm_host: Arc<wasm_host::WasmHost>,
 ) -> Result<(), asynq::error::Error> {
     let mut queues = HashMap::new();
     queues.insert("critical".to_string(), 6);
@@ -47,10 +49,17 @@ pub async fn start_processor(
         let db_pool = db_pool.clone();
         let db_pool_error = db_pool.clone();
         let registry_client = registry_client.clone();
+        let wasm_host = Arc::clone(&wasm_host);
         async move {
-            handle_task(logger.clone(), db_pool, registry_client, queue_task)
-                .await
-                .map_err(move |e| {
+            handle_task(
+                logger.clone(),
+                db_pool,
+                registry_client,
+                wasm_host,
+                queue_task,
+            )
+            .await
+            .map_err(move |e| {
                     error!(logger, "Task failed"; "error" => %e);
                     tokio::spawn(orm::log(
                         db_pool_error,
@@ -73,6 +82,7 @@ async fn handle_task(
     logger: Logger,
     db_pool: Pool<Postgres>,
     registry_client: RegistryServiceClient<Channel>,
+    wasm_host: Arc<wasm_host::WasmHost>,
     queue_task: Task,
 ) -> Result<(), Error> {
     let task = api::task::Task::decode(queue_task.payload.as_slice())?;
@@ -84,6 +94,7 @@ async fn handle_task(
     let result = execute_artifact(
         logger.new(slog::o!()),
         db_pool.clone(),
+        &wasm_host,
         &task,
         task_id,
         artifact,
@@ -150,11 +161,13 @@ async fn fetch_artifact(
 async fn execute_artifact(
     logger: Logger,
     db: Pool<Postgres>,
+    wasm_host: &wasm_host::WasmHost,
     task: &api::task::Task,
     task_id: String,
     artifact: Vec<u8>,
 ) -> Result<Vec<u8>, Error> {
-    wasm_host::execute_wasm(logger, db.clone(), task.clone(), task_id, artifact)
+    wasm_host
+        .execute(logger, db.clone(), task.clone(), task_id, artifact)
         .await
         .map_err(|err| anyhow!("Execution failed: {}", err))
 }
