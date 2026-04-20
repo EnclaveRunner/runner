@@ -45,7 +45,7 @@ pub async fn start_processor(
             .task_id()
             .to_string();
         let task_id_for_error = task_id.clone();
-        let logger = logger.new(slog::o!("task_id" => queue_task.options.task_id.clone()));
+        let logger = logger.new(slog::o!("task_id" => task_id.clone()));
         let db_pool = db_pool.clone();
         let db_pool_error = db_pool.clone();
         let registry_client = registry_client.clone();
