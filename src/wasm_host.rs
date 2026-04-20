@@ -145,7 +145,7 @@ impl WasiHttpView for ComponentRunStates {
 /// Shared Wasm runtime that holds the pre-configured [`Engine`] and [`Linker`].
 ///
 /// Create once at application startup and share (via `Arc<WasmHost>`) across
-/// task executions.  Per-execution isolation is provided by a fresh [`Store`].
+/// task executions. Per-execution isolation is provided by a fresh [`Store`].
 pub struct WasmHost {
     engine: Engine,
     linker: Linker<ComponentRunStates>,
@@ -153,8 +153,26 @@ pub struct WasmHost {
 
 impl WasmHost {
     pub fn new() -> Result<Self> {
+        // Speed up instantiation using PoolingAllocation: https://docs.wasmtime.dev/examples-fast-instantiation.html#tuning-wasmtime-for-fast-instantiation
+        let mut pool = PoolingAllocationConfig::new();
+        let max_memory = 1 << 32; // 4 GiB or 32bit memory space
+        pool.max_memory_size(max_memory);
+        
+        // Speed up compilation using Cache: https://docs.wasmtime.dev/examples-fast-compilation.html#tuning-wasmtime-for-fast-compilation
+        let cache = match Cache::new(CacheConfig::new()) {
+            Ok(value) => value,
+            Err(err) => return Err(err),
+        };
+        
         let mut config = Config::new();
+        config.allocation_strategy(InstanceAllocationStrategy::Pooling(pool));
         config.async_support(true);
+        config.memory_init_cow(true);
+        config.wasm_memory64(true);
+        config.memory_reservation(max_memory as u64);
+        config.cache(Some(cache));
+        config.parallel_compilation(true);
+    
         let engine = Engine::new(&config)?;
 
         let mut linker = Linker::new(&engine);
