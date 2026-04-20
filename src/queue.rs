@@ -60,16 +60,16 @@ pub async fn start_processor(
             )
             .await
             .map_err(move |e| {
-                    error!(logger, "Task failed"; "error" => %e);
-                    tokio::spawn(orm::log(
-                        db_pool_error,
-                        task_id_for_error,
-                        LogLevel::Fatal,
-                        LogIssuer::System,
-                        e.to_string(),
-                    ));
-                    asynq::error::Error::other(e.to_string())
-                })
+                error!(logger, "Task failed"; "error" => %e);
+                tokio::spawn(orm::log(
+                    db_pool_error,
+                    task_id_for_error,
+                    LogLevel::Fatal,
+                    LogIssuer::System,
+                    e.to_string(),
+                ));
+                asynq::error::Error::other(e.to_string())
+            })
         }
     });
 

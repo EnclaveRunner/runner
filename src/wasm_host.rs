@@ -157,13 +157,13 @@ impl WasmHost {
         let mut pool = PoolingAllocationConfig::new();
         let max_memory = 1 << 32; // 4 GiB or 32bit memory space
         pool.max_memory_size(max_memory);
-        
+
         // Speed up compilation using Cache: https://docs.wasmtime.dev/examples-fast-compilation.html#tuning-wasmtime-for-fast-compilation
         let cache = match Cache::new(CacheConfig::new()) {
             Ok(value) => value,
             Err(err) => return Err(err),
         };
-        
+
         let mut config = Config::new();
         config.allocation_strategy(InstanceAllocationStrategy::Pooling(pool));
         config.async_support(true);
@@ -172,7 +172,7 @@ impl WasmHost {
         config.memory_reservation(max_memory as u64);
         config.cache(Some(cache));
         config.parallel_compilation(true);
-    
+
         let engine = Engine::new(&config)?;
 
         let mut linker = Linker::new(&engine);

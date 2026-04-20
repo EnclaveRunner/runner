@@ -99,8 +99,14 @@ async fn main() -> ExitCode {
         }
     };
 
-    match queue::start_processor(logger.clone(), redis_config, pool, registry_client, wasm_host)
-        .await
+    match queue::start_processor(
+        logger.clone(),
+        redis_config,
+        pool,
+        registry_client,
+        wasm_host,
+    )
+    .await
     {
         Ok(_) => {}
         Err(err) => {
