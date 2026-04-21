@@ -1,5 +1,4 @@
 use std::process::ExitCode;
-use std::sync::Arc;
 
 use asynq::backend::RedisConnectionType;
 use redis::{ConnectionAddr, IntoConnectionInfo, RedisConnectionInfo};
@@ -17,10 +16,9 @@ pub mod api {
 }
 
 mod config;
+mod docker_exec;
 mod orm;
 mod queue;
-mod registry;
-mod wasm_host;
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -28,24 +26,6 @@ async fn main() -> ExitCode {
     let logger = config::configure_logger(&app_config);
 
     info!(logger, "Initlizied config!");
-
-    let artifact_registry_addr = format!(
-        "{}:{}",
-        app_config.artifact_registry.host, app_config.artifact_registry.port
-    );
-
-    let registry_client =
-        match api::registry::registry_service_client::RegistryServiceClient::connect(
-            artifact_registry_addr.clone(),
-        )
-        .await
-        {
-            Ok(client) => client,
-            Err(err) => {
-                error!(logger, "Failed to connect to artifact registry"; "error" => %err, "address" => artifact_registry_addr);
-                return ExitCode::FAILURE;
-            }
-        };
 
     let mut redis_connection_info_details =
         RedisConnectionInfo::default().set_db(app_config.redis.db.into());
@@ -91,20 +71,11 @@ async fn main() -> ExitCode {
         }
     };
 
-    let wasm_host = match wasm_host::WasmHost::new() {
-        Ok(host) => Arc::new(host),
-        Err(err) => {
-            error!(logger, "Failed to initialize Wasm engine"; "error" => %err);
-            return ExitCode::FAILURE;
-        }
-    };
-
     match queue::start_processor(
         logger.clone(),
         redis_config,
         pool,
-        registry_client,
-        wasm_host,
+        app_config.docker_exec.always_pull,
     )
     .await
     {

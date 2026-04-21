@@ -69,12 +69,25 @@ impl Default for Database {
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(default)]
+pub struct DockerExec {
+    pub always_pull: bool,
+}
+
+impl Default for DockerExec {
+    fn default() -> Self {
+        Self { always_pull: false }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(default)]
 pub struct AppConfig {
     pub artifact_registry: ArtifactRegistry,
     pub redis: Redis,
     pub database: Database,
     pub log_level: Severity,
     pub human_readable_output: bool,
+    pub docker_exec: DockerExec,
 }
 
 impl Default for AppConfig {
@@ -85,6 +98,7 @@ impl Default for AppConfig {
             database: Default::default(),
             log_level: Severity::Info,
             human_readable_output: false,
+            docker_exec: Default::default(),
         }
     }
 }

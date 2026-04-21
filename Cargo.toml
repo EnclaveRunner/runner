@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.102"
+bollard = "0.18"
 figment = {version = "0.10.19", features = ["env", "yaml"]}
 hyper = "1.8.1"
 prost = "0.14.3"
