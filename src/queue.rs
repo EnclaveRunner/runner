@@ -8,7 +8,7 @@ use asynq::{
     task::Task,
 };
 use prost::Message;
-use slog::{Logger, error, info};
+use slog::{Logger, error, info, warn};
 use sqlx::{Pool, Postgres};
 
 use crate::{
@@ -76,7 +76,11 @@ async fn handle_task(
     let task = api::task::Task::decode(queue_task.payload.as_slice())?;
     let task_id = queue_task.result_writer().unwrap().task_id().to_string();
 
+    let measurement = extract_measurement(&task);
+
     log_task_assigned(logger.new(slog::o!()), db_pool.clone(), &task_id).await?;
+    send_measurement(&logger, &measurement, "assigned").await;
+    send_measurement(&logger, &measurement, "pulled").await;
     log_task_running(logger.new(slog::o!()), db_pool.clone(), &task_id).await?;
 
     let result = docker_exec::execute(logger.new(slog::o!()), &task, always_pull)
@@ -97,7 +101,44 @@ async fn handle_task(
             error!(logger, "Failed to write result"; "error" => %err);
         }
     };
+
+    send_measurement(&logger, &measurement, "cleanup").await;
     Ok(())
+}
+
+struct Measurement {
+    id: String,
+    server: String,
+}
+
+fn extract_measurement(task: &api::task::Task) -> Option<Measurement> {
+    let mut id = None;
+    let mut server = None;
+    for env in &task.environment_variables {
+        match env.key.as_str() {
+            "MEASUREMENT_ID" => id = Some(env.value.clone()),
+            "MEASUREMENT_SERVER" => server = Some(env.value.clone()),
+            _ => {}
+        }
+    }
+    match (id, server) {
+        (Some(id), Some(server)) => Some(Measurement { id, server }),
+        _ => None,
+    }
+}
+
+async fn send_measurement(logger: &Logger, measurement: &Option<Measurement>, endpoint: &str) {
+    let Some(m) = measurement else { return };
+    let url = format!(
+        "{}/benchmarks/{}?request={}",
+        m.server.trim_end_matches('/'),
+        endpoint,
+        m.id,
+    );
+    match reqwest::Client::new().get(&url).send().await {
+        Ok(_) => {}
+        Err(err) => warn!(logger, "Failed to send measurement"; "endpoint" => endpoint, "error" => %err),
+    }
 }
 
 async fn log_task_assigned(logger: Logger, db: Pool<Postgres>, task_id: &str) -> Result<(), Error> {
