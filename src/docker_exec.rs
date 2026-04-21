@@ -5,6 +5,7 @@ use bollard::container::{
     WaitContainerOptions,
 };
 use bollard::image::CreateImageOptions;
+use bollard::secret::{HostConfig, NetworkingConfig};
 use slog::{Logger, info};
 use tokio_stream::StreamExt;
 
@@ -58,6 +59,10 @@ pub async fn run_container(
             Config {
                 image: Some(image_name.to_string()),
                 env: Some(env),
+                host_config: Some(HostConfig {
+                    network_mode: Some("host".to_string()),
+                    ..Default::default()
+                }),
                 ..Default::default()
             },
         )

@@ -143,7 +143,7 @@ async fn send_measurement(logger: &Logger, measurement: &Option<Measurement>, en
     match reqwest::Client::new().get(&url).send().await {
         Ok(_) => {}
         Err(err) => {
-            warn!(logger, "Failed to send measurement"; "endpoint" => endpoint, "error" => %err)
+            warn!(logger, "Failed to send measurement"; "endpoint" => endpoint, "error" => %err, "server" => %m.server)
         }
     }
 }
