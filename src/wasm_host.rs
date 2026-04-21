@@ -9,8 +9,11 @@ use wasmtime::component::{Component, Linker, ResourceTable, Val};
 use wasmtime::*;
 use wasmtime_wasi::cli::{IsTerminal, StdoutStream};
 use wasmtime_wasi::{WasiCtx, WasiCtxView, WasiView};
-use wasmtime_wasi_http::types::default_send_request;
-use wasmtime_wasi_http::{WasiHttpCtx, WasiHttpView};
+use wasmtime_wasi_http::WasiHttpCtx;
+use wasmtime_wasi_http::p2::{
+    HttpResult, WasiHttpCtxView, WasiHttpHooks, WasiHttpView, body::HyperOutgoingBody,
+    default_send_request, types::HostFutureIncomingResponse, types::OutgoingRequestConfig,
+};
 
 use crate::api::task::{Task, Val as ProtoVal, val};
 use crate::orm;
@@ -109,7 +112,7 @@ pub struct ComponentRunStates {
     pub wasi_ctx: WasiCtx,
     pub resource_table: ResourceTable,
     pub http_ctx: WasiHttpCtx,
-    pub logger: Logger, // You can add other custom host states if needed
+    pub http_hooks: LoggingHttpHooks,
 }
 
 impl WasiView for ComponentRunStates {
@@ -121,24 +124,30 @@ impl WasiView for ComponentRunStates {
     }
 }
 
-impl WasiHttpView for ComponentRunStates {
-    fn ctx(&mut self) -> &mut WasiHttpCtx {
-        &mut self.http_ctx
-    }
+pub struct LoggingHttpHooks {
+    logger: Logger,
+}
 
-    fn table(&mut self) -> &mut ResourceTable {
-        &mut self.resource_table
-    }
-
+impl WasiHttpHooks for LoggingHttpHooks {
     fn send_request(
         &mut self,
-        request: hyper::Request<wasmtime_wasi_http::body::HyperOutgoingBody>,
-        config: wasmtime_wasi_http::types::OutgoingRequestConfig,
-    ) -> wasmtime_wasi_http::HttpResult<wasmtime_wasi_http::types::HostFutureIncomingResponse> {
+        request: hyper::Request<HyperOutgoingBody>,
+        config: OutgoingRequestConfig,
+    ) -> HttpResult<HostFutureIncomingResponse> {
         // Blocking of requests is possible here
         let uri = request.uri().to_string();
         debug!(self.logger, "Processing http request"; "uri" => uri);
         Ok(default_send_request(request, config))
+    }
+}
+
+impl WasiHttpView for ComponentRunStates {
+    fn http(&mut self) -> WasiHttpCtxView<'_> {
+        WasiHttpCtxView {
+            ctx: &mut self.http_ctx,
+            table: &mut self.resource_table,
+            hooks: &mut self.http_hooks,
+        }
     }
 }
 
@@ -166,7 +175,6 @@ impl WasmHost {
 
         let mut config = Config::new();
         config.allocation_strategy(InstanceAllocationStrategy::Pooling(pool));
-        config.async_support(true);
         config.memory_init_cow(true);
         config.wasm_memory64(true);
         config.memory_reservation(max_memory as u64);
@@ -177,7 +185,7 @@ impl WasmHost {
 
         let mut linker = Linker::new(&engine);
         wasmtime_wasi::p2::add_to_linker_async(&mut linker)?;
-        wasmtime_wasi_http::add_only_http_to_linker_async(&mut linker)?;
+        wasmtime_wasi_http::p2::add_only_http_to_linker_async(&mut linker)?;
 
         Ok(Self { engine, linker })
     }
@@ -243,7 +251,9 @@ impl WasmHost {
             wasi_ctx: wasi,
             resource_table: ResourceTable::new(),
             http_ctx: WasiHttpCtx::new(),
-            logger: logger.new(slog::o!()),
+            http_hooks: LoggingHttpHooks {
+                logger: logger.new(slog::o!()),
+            },
         };
 
         let mut store = Store::new(&self.engine, state);
@@ -256,15 +266,15 @@ impl WasmHost {
         let function = task
             .function
             .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("Task has no function"))?;
+            .ok_or_else(|| Error::msg("Task has no function"))?;
         let artifact = function
             .artifact
             .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("Function has no artifact"))?;
+            .ok_or_else(|| Error::msg("Function has no artifact"))?;
         let package = artifact
             .package
             .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("Artifact has no package"))?;
+            .ok_or_else(|| Error::msg("Artifact has no package"))?;
 
         let interface_identifier = format!(
             "{}:{}/{}",
@@ -274,17 +284,16 @@ impl WasmHost {
         // Get the index for the exported interface
         let interface_idx = instance
             .get_export_index(&mut store, None, &interface_identifier)
-            .ok_or_else(|| anyhow::anyhow!("Cannot get interface {}", interface_identifier))?;
+            .ok_or_else(|| Error::msg(format!("Cannot get interface {}", interface_identifier)))?;
         // Get the index for the exported function in the exported interface
         let parent_export_idx = Some(&interface_idx);
         let func_idx = instance
             .get_export_index(&mut store, parent_export_idx, &function.name)
             .ok_or_else(|| {
-                anyhow::anyhow!(
+                Error::msg(format!(
                     "Cannot get function {} in interface {}",
-                    function.name,
-                    interface_identifier,
-                )
+                    function.name, interface_identifier,
+                ))
             })?;
 
         let func = instance
@@ -307,14 +316,14 @@ impl WasmHost {
                         info!(logger, "Execution result: {}", result);
                         Ok(result.as_bytes().to_vec())
                     } else {
-                        Err(anyhow::anyhow!("Execution error: {}", err))
+                        Err(Error::msg(format!("Execution error: {}", err)))
                     }
                 }
-                _ => Err(anyhow::anyhow!(
-                    "Return value tuple does not contain two strings"
+                _ => Err(Error::msg(
+                    "Return value tuple does not contain two strings",
                 )),
             },
-            _ => Err(anyhow::anyhow!("Return value is not a two-element tuple")),
+            _ => Err(Error::msg("Return value is not a two-element tuple")),
         }
     }
 }
@@ -327,7 +336,7 @@ fn proto_val_to_wasm_val(proto: ProtoVal) -> Result<Val> {
     use val::Value;
     match proto
         .value
-        .ok_or_else(|| anyhow::anyhow!("Val has no value set"))?
+        .ok_or_else(|| Error::msg("Val has no value set"))?
     {
         Value::BoolVal(v) => Ok(Val::Bool(v)),
         Value::S8Val(v) => Ok(Val::S8(v as i8)),
@@ -342,7 +351,7 @@ fn proto_val_to_wasm_val(proto: ProtoVal) -> Result<Val> {
         Value::F64Val(v) => Ok(Val::Float64(v)),
         Value::CharVal(v) => {
             let c = char::from_u32(v)
-                .ok_or_else(|| anyhow::anyhow!("Invalid Unicode scalar value: {v}"))?;
+                .ok_or_else(|| Error::msg(format!("Invalid Unicode scalar value: {v}")))?;
             Ok(Val::Char(c))
         }
         Value::StringVal(v) => Ok(Val::String(v)),
@@ -384,9 +393,9 @@ fn proto_val_to_wasm_val(proto: ProtoVal) -> Result<Val> {
                 .fields
                 .into_iter()
                 .map(|f| {
-                    let v = f
-                        .value
-                        .ok_or_else(|| anyhow::anyhow!("Record field '{}' has no value", f.name))?;
+                    let v = f.value.ok_or_else(|| {
+                        Error::msg(format!("Record field '{}' has no value", f.name))
+                    })?;
                     Ok((f.name, proto_val_to_wasm_val(*v)?))
                 })
                 .collect::<Result<Vec<_>>>()?;
