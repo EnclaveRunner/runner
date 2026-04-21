@@ -12,8 +12,7 @@ use slog::{Logger, error, info, warn};
 use sqlx::{Pool, Postgres};
 
 use crate::{
-    api,
-    docker_exec,
+    api, docker_exec,
     orm::{self, LogIssuer, LogLevel},
 };
 
@@ -77,13 +76,19 @@ async fn handle_task(
     let task_id = queue_task.result_writer().unwrap().task_id().to_string();
 
     let measurement = extract_measurement(&task);
+    let image_name = docker_exec::image_name(&task)?;
 
     log_task_assigned(logger.new(slog::o!()), db_pool.clone(), &task_id).await?;
     send_measurement(&logger, &measurement, "assigned").await;
+
+    if always_pull {
+        docker_exec::pull_image(&logger, &image_name).await?;
+    }
     send_measurement(&logger, &measurement, "pulled").await;
+
     log_task_running(logger.new(slog::o!()), db_pool.clone(), &task_id).await?;
 
-    let result = docker_exec::execute(logger.new(slog::o!()), &task, always_pull)
+    let result = docker_exec::run_container(logger.new(slog::o!()), &task, &image_name)
         .await
         .map_err(|err| anyhow!("Execution failed: {}", err))?;
 
@@ -137,7 +142,9 @@ async fn send_measurement(logger: &Logger, measurement: &Option<Measurement>, en
     );
     match reqwest::Client::new().get(&url).send().await {
         Ok(_) => {}
-        Err(err) => warn!(logger, "Failed to send measurement"; "endpoint" => endpoint, "error" => %err),
+        Err(err) => {
+            warn!(logger, "Failed to send measurement"; "endpoint" => endpoint, "error" => %err)
+        }
     }
 }
 
